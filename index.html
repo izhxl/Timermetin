@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <meta name="theme-color" content="#111111">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Metin Timer • Villo 2</title>
+  <style>
+    :root{
+      --bg:#111; --panel:#1b1b1b; --panel2:#0f0f0f; --line:#2a2a2a; --text:#eee;
+      --shadow: 0 10px 28px rgba(0,0,0,.35);
+    }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
+    header{
+      position: sticky; top:0; z-index: 30;
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      padding:10px 12px; background:var(--panel); border-bottom:1px solid var(--line);
+    }
+    header select, header input, header button{
+      font-size:14px; padding:7px 9px; border-radius:12px;
+      border:1px solid #333; background:var(--panel2); color:var(--text);
+    }
+    header button{ cursor:pointer; }
+    .tog{ display:flex; gap:6px; align-items:center; font-size:14px; }
+    .hint{ margin-left:auto; opacity:.75; font-size:12px; }
+    main{ padding:12px 10px 24px; }
+    .mapWrap{
+      position:relative;
+      width:min(980px, 98vw);
+      margin:0 auto;
+      border-radius:16px; overflow:hidden;
+      border:1px solid #333;
+      background:#0b0b0b;
+      touch-action: manipulation;
+    }
+    .mapWrap img{
+      width:100%; height:auto; display:block;
+      user-select:none; -webkit-user-drag:none;
+      pointer-events:none;
+    }
+    .marker{
+      position:absolute; transform: translate(-50%, -50%);
+      width:18px; height:18px; border-radius:999px;
+      border:2px solid rgba(255,255,255,.85);
+      box-shadow: 0 2px 10px rgba(0,0,0,.55);
+      cursor:pointer;
+    }
+    .m25{ background: rgba(120,200,255,.95); }
+    .m30{ background: rgba(255,220,120,.95); }
+    .m35{ background: rgba(255,160,160,.95); }
+    .spawnGlow{ box-shadow: 0 0 0 5px rgba(120,255,160,.22), 0 0 18px rgba(120,255,160,.28), 0 2px 10px rgba(0,0,0,.55); }
+    .recommended{ outline: 3px solid rgba(255,220,120,.95); outline-offset: 3px; }
+    .routeNum{
+      position:absolute; top:-10px; left:-10px;
+      width:20px; height:20px; border-radius:999px;
+      background: rgba(0,0,0,.78);
+      border:1px solid rgba(255,255,255,.22);
+      display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:800;
+    }
+    .card{
+      position:absolute; transform: translate(-50%, calc(-100% - 14px));
+      min-width: 260px; max-width: 320px;
+      padding:10px 10px 9px;
+      border-radius:14px;
+      background: rgba(0,0,0,.78);
+      border:1px solid rgba(255,255,255,.14);
+      backdrop-filter: blur(6px);
+      box-shadow: var(--shadow);
+      z-index: 25;
+    }
+    .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
+    .title{ font-weight:800; font-size:14px; }
+    .badges{ display:flex; gap:6px; }
+    .badge{
+      font-size:12px; padding:2px 7px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.16);
+      opacity:.9;
+      white-space:nowrap;
+    }
+    .time{ margin-top:6px; font-size:18px; font-variant-numeric: tabular-nums; }
+    .sub{ margin-top:3px; font-size:12px; opacity:.86; line-height:1.25; }
+    .btns{ margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+    .btns button{
+      font-size:12px; padding:6px 9px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.06); color:var(--text);
+      cursor:pointer;
+    }
+    .btns button:hover{ background: rgba(255,255,255,.10); }
+    .muted{ opacity:.7; }
+    .sheetBackdrop{
+      position:fixed; inset:0; background: rgba(0,0,0,.45);
+      display:none; align-items:flex-end; justify-content:center;
+      z-index:40;
+    }
+    .sheet{
+      width:min(980px, 100vw);
+      border-radius: 18px 18px 0 0;
+      background: #151515;
+      border-top:1px solid #2a2a2a;
+      padding: 10px 12px 14px;
+      box-shadow: 0 -18px 48px rgba(0,0,0,.55);
+    }
+    .sheet h3{ margin:6px 0 10px; font-size:16px; }
+    .grid{
+      display:grid; grid-template-columns: repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    .box{
+      border:1px solid #2a2a2a; background:#0f0f0f; border-radius:14px;
+      padding:10px;
+    }
+    .box label{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; opacity:.95; }
+    .box input, .box select{
+      font-size:14px; padding:7px 9px; border-radius:12px;
+      border:1px solid #333; background:#0a0a0a; color:var(--text); width:120px;
+    }
+    .sheet .rowBtns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .sheet .rowBtns button{ padding:8px 10px; border-radius:12px; }
+    @media (max-width: 640px){
+      .grid{ grid-template-columns: 1fr; }
+      .hint{ width:100%; margin-left:0; }
+      .card{ min-width: 240px; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <select id="profileSelect" title="Profilo"></select>
+  <button id="profileManageBtn" title="Gestione profili">Profili</button>
+
+  <label class="tog">CH
+    <select id="chSelect"></select>
+  </label>
+
+  <label class="tog">Mostra
+    <select id="filterSelect">
+      <option value="all">25/30/35</option>
+      <option value="25">Solo 25</option>
+      <option value="30">Solo 30</option>
+      <option value="35">Solo 35</option>
+    </select>
+  </label>
+
+  <button id="settingsBtn">Impostazioni</button>
+  <button id="resetChBtn">Reset CH</button>
+
+  <div class="hint">Tap un puntino → timer & azioni • Tap sulla mappa (vuota) → imposta posizione</div>
+</header>
+
+<main>
+  <div class="mapWrap" id="mapWrap">
+    <img src="villo2.png" alt="Mappa Villo 2">
+  </div>
+</main>
+
+<div class="sheetBackdrop" id="sheetBackdrop">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="row" style="margin-top:4px;">
+      <h3 style="margin:0;">Impostazioni</h3>
+      <button id="closeSheetBtn">Chiudi</button>
+    </div>
+
+    <div class="grid">
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Respawn (min)</div>
+        <label>Min <input id="minMin" type="number" min="1" value="10"></label>
+        <label style="margin-top:8px;">Probabile <input id="modeMin" type="number" min="1" step="0.5" value="12.5"></label>
+        <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" value="15"></label>
+        <div class="muted" style="margin-top:8px; font-size:12px;">Distribuzione realistica (triangolare).</div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Farm assistant</div>
+        <label>Consiglia zona <input id="togSuggest" type="checkbox" checked></label>
+        <label style="margin-top:8px;">Percorso ottimizzato <input id="togRoute" type="checkbox"></label>
+        <label style="margin-top:8px;">Evidenzia “spawnato” <input id="togSpawnGlow" type="checkbox" checked></label>
+        <label style="margin-top:8px;">Modalità dettagliata (slot) <input id="togDetailed" type="checkbox"></label>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Tempi (secondi)</div>
+        <label>Rottura Metin 25 <input id="break25" type="number" min="0" value="12"></label>
+        <label style="margin-top:8px;">Rottura Metin 30 <input id="break30" type="number" min="0" value="18"></label>
+        <label style="margin-top:8px;">Rottura Metin 35 <input id="break35" type="number" min="0" value="25"></label>
+        <label style="margin-top:8px;">Considera rottura <input id="togBreakTime" type="checkbox" checked></label>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Movimento</div>
+        <label>Secondi per 1% mappa <input id="secPerPct" type="number" min="0" step="0.5" value="2.0"></label>
+        <div class="muted" style="margin-top:8px; font-size:12px;">Più basso = ti muovi più veloce.</div>
+        <div class="muted" style="margin-top:6px; font-size:12px;">Suggerimento: 1–3s è un buon range.</div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Dati</div>
+        <div class="rowBtns">
+          <button id="exportBtn">Esporta</button>
+          <button id="importBtn">Importa</button>
+          <input id="importFile" type="file" accept="application/json" style="display:none;">
+          <button id="installHintBtn">Installazione iPhone/PC</button>
+        </div>
+        <div class="muted" style="margin-top:8px; font-size:12px;">Export/Import = sincronizzazione manuale tra dispositivi.</div>
+      </div>
+
+      <div class="box">
+        <div style="font-weight:800; margin-bottom:8px;">Misura tempo rottura</div>
+        <div class="muted" style="font-size:12px; margin-bottom:8px;">Scegli livello e fai Start/Stop mentre rompi.</div>
+        <label>Livello
+          <select id="measureLevel">
+            <option value="25">25</option>
+            <option value="30">30</option>
+            <option value="35">35</option>
+          </select>
+        </label>
+        <div class="rowBtns" style="margin-top:10px;">
+          <button id="measureStart">Start</button>
+          <button id="measureStop" disabled>Stop</button>
+          <button id="measureClear">Reset media</button>
+        </div>
+        <div class="muted" id="measureInfo" style="margin-top:8px; font-size:12px;">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
