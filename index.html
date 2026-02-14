@@ -17,8 +17,8 @@
     header{
       position: sticky; top:0; z-index: 30;
       display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-      padding:10px 12px;
-      padding-top: calc(10px + env(safe-area-inset-top)); background:var(--panel); border-bottom:1px solid var(--line);
+      padding:10px 12px; padding-top: calc(10px + env(safe-area-inset-top));
+      background:var(--panel); border-bottom:1px solid var(--line);
     }
     header select, header input, header button{
       font-size:14px; padding:7px 9px; border-radius:12px;
@@ -37,23 +37,37 @@
       background:#0b0b0b;
       touch-action: pan-x pan-y;
     }
-    .mapWrap img{
-      width:100%; height:auto; display:block;
-      user-select:none; -webkit-user-drag:none;
-      pointer-events:none;
-    }
+    .mapWrap img{ width:100%; height:auto; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+    .overlay{ position:absolute; inset:0; pointer-events:none; }
+    /* zones */
+    .zone{ position:absolute; transform: translate(-50%,-50%); border-radius:999px; opacity:.22; filter: blur(.2px); }
+    .z25{ background: rgba(120,200,255,.9); }
+    .z30{ background: rgba(255,220,120,.9); }
+    .z35{ background: rgba(255,160,160,.9); }
+    /* markers */
     .marker{
-      position:absolute; transform: translate(-50%, -50%);
+      position:absolute; transform: translate(-50%, -50%) translate(var(--ox,0px), var(--oy,0px));
       width:18px; height:18px; border-radius:999px;
       border:2px solid rgba(255,255,255,.85);
       box-shadow: 0 2px 10px rgba(0,0,0,.55);
       cursor:pointer;
+      z-index: 10;
     }
     .m25{ background: rgba(120,200,255,.95); }
     .m30{ background: rgba(255,220,120,.95); }
     .m35{ background: rgba(255,160,160,.95); }
+    .pos{ width:12px; height:12px; border:2px solid rgba(255,255,255,.9); background: rgba(180,180,180,.95); }
     .spawnGlow{ box-shadow: 0 0 0 5px rgba(120,255,160,.22), 0 0 18px rgba(120,255,160,.28), 0 2px 10px rgba(0,0,0,.55); }
     .recommended{ outline: 3px solid rgba(255,220,120,.95); outline-offset: 3px; }
+    .badgeCount{
+      position:absolute; top:-10px; right:-10px;
+      min-width:20px; height:20px; padding:0 6px;
+      border-radius:999px;
+      background: rgba(0,0,0,.78);
+      border:1px solid rgba(255,255,255,.22);
+      display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:800;
+    }
     .routeNum{
       position:absolute; top:-10px; left:-10px;
       width:20px; height:20px; border-radius:999px;
@@ -62,9 +76,11 @@
       display:flex; align-items:center; justify-content:center;
       font-size:12px; font-weight:800;
     }
+    /* card */
     .card{
-      position:absolute; transform: translate(-50%, calc(-100% - 14px));
-      min-width: 260px; max-width: 320px;
+      position:absolute;
+      transform: translate(-50%, calc(-100% - 14px)) translate(var(--ox, 0px), var(--oy, 0px)) translate(var(--dx, 0px), var(--dy, 0px));
+      min-width: 260px; max-width: 330px;
       padding:10px 10px 9px;
       border-radius:14px;
       background: rgba(0,0,0,.78);
@@ -75,13 +91,8 @@
     }
     .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
     .title{ font-weight:800; font-size:14px; }
-    .badges{ display:flex; gap:6px; }
-    .badge{
-      font-size:12px; padding:2px 7px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.16);
-      opacity:.9;
-      white-space:nowrap;
-    }
+    .badges{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+    .badge{ font-size:12px; padding:2px 7px; border-radius:999px; border:1px solid rgba(255,255,255,.16); opacity:.9; white-space:nowrap; }
     .time{ margin-top:6px; font-size:18px; font-variant-numeric: tabular-nums; }
     .sub{ margin-top:3px; font-size:12px; opacity:.86; line-height:1.25; }
     .btns{ margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
@@ -92,12 +103,15 @@
       cursor:pointer;
     }
     .btns button:hover{ background: rgba(255,255,255,.10); }
+    .slotList{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+    .slotRow{ display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:6px 8px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
+    .slotRow button{ font-size:11px; padding:3px 7px; border-radius:10px; border:1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color:var(--text); cursor:pointer; }
     .muted{ opacity:.7; }
+    /* sheet */
     .sheetBackdrop{
       position:fixed; inset:0; background: rgba(0,0,0,.45);
       display:none; align-items:flex-end; justify-content:center;
       z-index:40;
-    
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding-top: env(safe-area-inset-top);
@@ -109,39 +123,29 @@
       background: #151515;
       border-top:1px solid #2a2a2a;
       padding: 10px 12px 14px;
-      max-height: calc(100svh - 24px);
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      -webkit-overflow-scrolling: touch;
       padding-top: calc(10px + env(safe-area-inset-top));
       padding-bottom: calc(14px + env(safe-area-inset-bottom));
       box-shadow: 0 -18px 48px rgba(0,0,0,.55);
+      max-height: calc(100svh - 24px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+    .sheet .row{
+      position: sticky; top: 0; background:#151515;
+      padding-top:6px; padding-bottom:6px;
+      z-index:2;
     }
     .sheet h3{ margin:6px 0 10px; font-size:16px; }
-    .grid{
-      display:grid; grid-template-columns: repeat(2, minmax(0,1fr));
-      gap:10px;
-    }
-    .box{
-      border:1px solid #2a2a2a; background:#0f0f0f; border-radius:14px;
-      padding:10px;
-    }
+    .grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
+    .box{ border:1px solid #2a2a2a; background:#0f0f0f; border-radius:14px; padding:10px; }
     .box label{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; opacity:.95; }
     .box input, .box select{
       font-size:14px; padding:7px 9px; border-radius:12px;
-      border:1px solid #333; background:#0a0a0a; color:var(--text); width:120px;
+      border:1px solid #333; background:#0a0a0a; color:var(--text); width:140px;
     }
-    .sheet .rowBtns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-    .sheet .rowBtns button{ padding:8px 10px; border-radius:12px; }
-    .sheet .row{
-      position: sticky;
-      top: 0;
-      background: #151515;
-      padding-top: 6px;
-      padding-bottom: 6px;
-      z-index: 2;
-    }
-
+    .rowBtns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .rowBtns button{ padding:8px 10px; border-radius:12px; }
     @media (max-width: 640px){
       .grid{ grid-template-columns: 1fr; }
       .hint{ width:100%; margin-left:0; }
@@ -170,18 +174,19 @@
   <button id="settingsBtn">Impostazioni</button>
   <button id="resetChBtn">Reset CH</button>
 
-  <div class="hint">Tap un puntino → timer & azioni • Tap sulla mappa (vuota) → imposta posizione</div>
+  <div class="hint">Tap puntino → azioni • Tap mappa vuota: (1) chiude popup, (2) imposta posizione • v1.0-refactor</div>
 </header>
 
 <main>
   <div class="mapWrap" id="mapWrap">
     <img src="villo2.png" alt="Mappa Villo 2">
+    <div class="overlay" id="overlay"></div>
   </div>
 </main>
 
 <div class="sheetBackdrop" id="sheetBackdrop">
   <div class="sheet" role="dialog" aria-modal="true">
-    <div class="row" style="margin-top:4px;">
+    <div class="row">
       <h3 style="margin:0;">Impostazioni</h3>
       <button id="closeSheetBtn">Chiudi</button>
     </div>
@@ -193,29 +198,36 @@
         <label style="margin-top:8px;">Probabile <input id="modeMin" type="number" min="1" step="0.5" value="12.5"></label>
         <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" value="15"></label>
         <div class="muted" style="margin-top:8px; font-size:12px;">Distribuzione realistica (triangolare).</div>
+        <label style="margin-top:10px;">Stima “già rotto” (s) <input id="alreadyBrokenSec" type="number" min="0" value="60"></label>
       </div>
 
       <div class="box">
-        <div style="font-weight:800; margin-bottom:8px;">Farm assistant</div>
-        <label>Consiglia zona <input id="togSuggest" type="checkbox" checked></label>
+        <div style="font-weight:800; margin-bottom:8px;">Visuale mappa</div>
+        <label>Stile
+          <select id="mapStyle">
+            <option value="markers">Puntini</option>
+            <option value="zones">Zone</option>
+            <option value="both">Puntini + Zone</option>
+          </select>
+        </label>
+        <label style="margin-top:8px;">Consiglia zona <input id="togSuggest" type="checkbox" checked></label>
         <label style="margin-top:8px;">Percorso ottimizzato <input id="togRoute" type="checkbox"></label>
         <label style="margin-top:8px;">Evidenzia “spawnato” <input id="togSpawnGlow" type="checkbox" checked></label>
         <label style="margin-top:8px;">Modalità dettagliata (slot) <input id="togDetailed" type="checkbox"></label>
       </div>
 
       <div class="box">
-        <div style="font-weight:800; margin-bottom:8px;">Tempi (secondi)</div>
-        <label>Rottura Metin 25 <input id="break25" type="number" min="0" value="12"></label>
-        <label style="margin-top:8px;">Rottura Metin 30 <input id="break30" type="number" min="0" value="18"></label>
-        <label style="margin-top:8px;">Rottura Metin 35 <input id="break35" type="number" min="0" value="25"></label>
+        <div style="font-weight:800; margin-bottom:8px;">Tempi rottura (s)</div>
+        <label>Metin 25 <input id="break25" type="number" min="0" value="12"></label>
+        <label style="margin-top:8px;">Metin 30 <input id="break30" type="number" min="0" value="18"></label>
+        <label style="margin-top:8px;">Metin 35 <input id="break35" type="number" min="0" value="25"></label>
         <label style="margin-top:8px;">Considera rottura <input id="togBreakTime" type="checkbox" checked></label>
       </div>
 
       <div class="box">
         <div style="font-weight:800; margin-bottom:8px;">Movimento</div>
         <label>Secondi per 1% mappa <input id="secPerPct" type="number" min="0" step="0.5" value="2.0"></label>
-        <div class="muted" style="margin-top:8px; font-size:12px;">Più basso = ti muovi più veloce.</div>
-        <div class="muted" style="margin-top:6px; font-size:12px;">Suggerimento: 1–3s è un buon range.</div>
+        <div class="muted" style="margin-top:8px; font-size:12px;">Stima semplice (per ora). Quando mettiamo i nodi, diventa “percorso reale”.</div>
       </div>
 
       <div class="box">
@@ -224,7 +236,11 @@
           <button id="exportBtn">Esporta</button>
           <button id="importBtn">Importa</button>
           <input id="importFile" type="file" accept="application/json" style="display:none;">
-          <button id="installHintBtn">Installazione iPhone/PC</button>
+          <button id="installHintBtn">Installazione</button>
+        </div>
+        <div class="rowBtns">
+          <button id="resetSettingsBtn">Reset impostazioni</button>
+          <button id="resetProfileBtn">Reset profilo</button>
         </div>
         <div class="muted" style="margin-top:8px; font-size:12px;">Export/Import = sincronizzazione manuale tra dispositivi.</div>
       </div>

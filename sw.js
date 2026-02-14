@@ -1,8 +1,10 @@
-const CACHE = "metin-villo2-cache-v1";
+
+const CACHE = "metin-villo2-refactor-v1.0-refactor";
 const ASSETS = [
   "./index.html",
   "./app.js",
   "./manifest.json",
+  "./sw.js",
   "./villo2.png",
   "./icon-192.png",
   "./icon-512.png",
@@ -25,14 +27,14 @@ self.addEventListener("activate", (e)=>{
 });
 
 self.addEventListener("fetch", (e)=>{
-  const req = e.request;
   e.respondWith((async()=>{
-    const cached = await caches.match(req);
+    const cached = await caches.match(e.request);
     if (cached) return cached;
-    try{
-      return await fetch(req);
-    }catch{
-      if (req.mode === "navigate") return caches.match("./index.html");
+    try {
+      const fresh = await fetch(e.request);
+      return fresh;
+    } catch {
+      if (e.request.mode === "navigate") return caches.match("./index.html");
       throw;
     }
   })());
