@@ -2,32 +2,35 @@
 // Metin Timer • Villo 2 — Refactor build v1.0-refactor
 const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
-const VERSION = "v1.0-refactor";
+const VERSION = "v0.0 revisioned";
 
 // === DATA: clusters (percent coords) ===
 // NOTE: These coords will be tuned as you/your friends test.
 // Overlapping clusters are allowed; UI offsets them automatically.
 const CLUSTERS = [
   // 35
-  { id:"35_west",  level:35, name:"35 • Ovest (fascia)", x:17.5, y:46.0, slots:5, zoneR:8.5 },
-  { id:"35_nw",    level:35, name:"35 • Nord-Ovest",     x:13.0, y:12.0, slots:2, zoneR:7.0 },
+  { id:"35_w_s",    level:35, name:"35 • Ovest (sud)",        x:18.0, y:58.0, slots:5, zoneR:8.0 },
+  { id:"35_w_n",    level:35, name:"35 • Ovest (nord/isola)", x:13.0, y:12.0, slots:2, zoneR:7.0 },
+  { id:"35_north",  level:35, name:"35 • Nord (nuova)",       x:44.0, y:10.0, slots:2, zoneR:7.0 },
 
-  // 30 (8)
+  // 30
   { id:"30_se_big", level:30, name:"30 • Sud-Est (grande)", x:75.0, y:80.0, slots:3, zoneR:8.0 },
   { id:"30_e_mid",  level:30, name:"30 • Est (medio)",      x:85.0, y:33.0, slots:2, zoneR:7.0 },
   { id:"30_c_isle", level:30, name:"30 • Centro isola",     x:43.0, y:41.0, slots:2, zoneR:7.0 },
   { id:"30_ne",     level:30, name:"30 • Nord-Est",         x:70.0, y:18.0, slots:2, zoneR:7.0 },
   { id:"30_sw",     level:30, name:"30 • Sud-Ovest",        x:28.0, y:83.0, slots:2, zoneR:7.0 },
   { id:"30_s_mid",  level:30, name:"30 • Sud-Centro",       x:63.0, y:65.0, slots:2, zoneR:7.0 },
-  { id:"30_w_mid",  level:30, name:"30 • Ovest (medio)",    x:18.0, y:46.0, slots:2, zoneR:7.0 },
+  { id:"30_w_s",    level:30, name:"30 • Ovest (sud)",      x:18.0, y:58.0, slots:2, zoneR:7.0 },
   { id:"30_w_n",    level:30, name:"30 • Ovest (nord)",     x:29.0, y:31.0, slots:1, zoneR:6.0 },
+  { id:"30_north",  level:30, name:"30 • Nord (nuova)",     x:44.0, y:10.0, slots:2, zoneR:7.0 },
 
-  // 25 (5)
+  // 25
   { id:"25_se_big", level:25, name:"25 • Sud-Est (grande)", x:75.0, y:80.0, slots:3, zoneR:8.0 },
   { id:"25_ne_big", level:25, name:"25 • Nord-Est (grande)",x:66.0, y:13.5, slots:3, zoneR:8.0 },
   { id:"25_e_mid",  level:25, name:"25 • Est (medio)",      x:85.0, y:33.0, slots:2, zoneR:7.0 },
   { id:"25_sw",     level:25, name:"25 • Sud-Ovest",        x:28.0, y:83.0, slots:2, zoneR:7.0 },
   { id:"25_c_band", level:25, name:"25 • Centro (fascia)",  x:56.0, y:43.0, slots:2, zoneR:7.0 },
+  { id:"25_north",  level:25, name:"25 • Nord (nuova)",     x:44.0, y:10.0, slots:2, zoneR:7.0 },
 ];
 
 // === DOM ===
@@ -48,7 +51,10 @@ const closeSheetBtn = document.getElementById("closeSheetBtn");
 const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
 const maxMinEl = document.getElementById("maxMin");
+const spawnOffsetMinEl = document.getElementById("spawnOffsetMin");
 const alreadyBrokenSecEl = document.getElementById("alreadyBrokenSec");
+const nonFoundMinSecEl = document.getElementById("nonFoundMinSec");
+const nonFoundMaxSecEl = document.getElementById("nonFoundMaxSec");
 
 const mapStyleEl = document.getElementById("mapStyle");
 const togSuggest = document.getElementById("togSuggest");
@@ -94,6 +100,42 @@ const clamp=(n,a,b)=> Math.max(a, Math.min(b,n));
 const escapeHtml=(s)=> (s ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 
 // triangular distribution
+function slotWindowState(slot){
+  const s = activeProfile().settings;
+  const off = Number(s.spawnOffsetMin ?? 0) || 0;
+  const minMs = slot.startedMs + (Number(s.minMin) + off) * 60_000;
+  const maxMs = slot.startedMs + (Number(s.maxMin) + off) * 60_000;
+  const likelyMs = slot.startedMs + (Number(slot.rollMin ?? s.modeMin) + off) * 60_000;
+  const t = nowMs();
+  return { minMs, maxMs, likelyMs, t };
+}
+function slotStatusText(slot){
+  const {minMs, maxMs, t} = slotWindowState(slot);
+  if (t < minMs){
+    return { text: fmtCountdown(minMs - t), cls: "pre" };
+  }
+  if (t <= maxMs){
+    const left = maxMs - t;
+    return { text: `FINESTRA ${fmtCountdown(left)}`, cls: "window" };
+  }
+  return { text: `RITARDO +${fmtCountdown(t - maxMs)}`, cls: "late" };
+}
+function clusterReadiness(ch, cluster){
+  const arr = timersArr(ch, cluster.id);
+  if (!arr.length) return { ready: 0, nextMinMs: null, conf: null, any: false };
+  const t = nowMs();
+  let ready=0;
+  let nextMinMs=null;
+  let conf="sure";
+  for (const slot of arr){
+    const {minMs, maxMs} = slotWindowState(slot);
+    if (t >= minMs && t <= maxMs) ready++;
+    if (t < minMs) nextMinMs = (nextMinMs==null) ? minMs : Math.min(nextMinMs, minMs);
+    if ((slot.conf ?? "sure") !== "sure") conf = "unsure";
+  }
+  return { ready, nextMinMs, conf, any: true };
+}
+
 function randTriangular(min, mode, max){
   const u=Math.random();
   const c=(mode-min)/(max-min);
@@ -114,7 +156,10 @@ function defaultProfile(){
       minMin: 10,
       modeMin: 12.5,
       maxMin: 15,
+      spawnOffsetMin: 10,
       alreadyBrokenSec: 60,
+      nonFoundMinSec: 60,
+      nonFoundMaxSec: 240,
       suggest: true,
       route: false,
       spawnGlow: true,
@@ -185,15 +230,16 @@ function breakTimeForLevel(level){
 function addTimer(ch, cluster, opts={}){
   const s = activeProfile().settings;
   const rollMin = randTriangular(Number(s.minMin), Number(s.modeMin), Number(s.maxMin));
+  const offsetMin = Number(s.spawnOffsetMin ?? 0) || 0;
   const skewMs = Math.max(0, Number(opts.skewMs || 0));
   const startedMs = nowMs() - skewMs;
-  const nextSpawnMs = startedMs + rollMin * 60_000;
+  const nextSpawnMs = startedMs + (rollMin + offsetMin) * 60_000;
 
   let arr = timersArr(ch, cluster.id).slice();
 
   if (!s.detailed){
     // zone mode: single "zone timer"
-    arr = [{ nextSpawnMs, startedMs, rollMin: Math.round(rollMin*10)/10 }];
+    arr = [{ nextSpawnMs, startedMs, rollMin: Math.round(rollMin*10)/10, conf: opts.conf || 'sure' }];
   } else {
     // slot mode: each break fills one slot; cap by slots
     if (arr.length >= cluster.slots){
@@ -201,7 +247,7 @@ function addTimer(ch, cluster, opts={}){
       arr.sort((a,b)=>a.startedMs-b.startedMs);
       arr.shift();
     }
-    arr.push({ nextSpawnMs, startedMs, rollMin: Math.round(rollMin*10)/10 });
+    arr.push({ nextSpawnMs, startedMs, rollMin: Math.round(rollMin*10)/10, conf: opts.conf || 'sure' });
   }
 
   setTimersArr(ch, cluster.id, arr);
@@ -289,6 +335,10 @@ function routeOrder(ch){
 function visibleClusters(){
   const f = activeProfile().settings.filter;
   if (f === "all") return CLUSTERS;
+  if (String(f).includes("+")){
+    const parts = String(f).split("+").map(x=>Number(x.trim())).filter(Boolean);
+    return CLUSTERS.filter(c=>parts.includes(c.level));
+  }
   const lvl = Number(f);
   return CLUSTERS.filter(c=>c.level===lvl);
 }
@@ -374,7 +424,10 @@ function syncUIFromProfile(){
   minMinEl.value = String(p.settings.minMin);
   modeMinEl.value = String(p.settings.modeMin);
   maxMinEl.value = String(p.settings.maxMin);
+  if (spawnOffsetMinEl) spawnOffsetMinEl.value = String(p.settings.spawnOffsetMin ?? 10);
   alreadyBrokenSecEl.value = String(p.settings.alreadyBrokenSec ?? 60);
+  if (nonFoundMinSecEl) nonFoundMinSecEl.value = String(p.settings.nonFoundMinSec ?? 60);
+  if (nonFoundMaxSecEl) nonFoundMaxSecEl.value = String(p.settings.nonFoundMaxSec ?? 240);
 
   togSuggest.checked = !!p.settings.suggest;
   togRoute.checked = !!p.settings.route;
@@ -406,6 +459,14 @@ function syncSettingsFromUI(){
   p.settings.maxMin=maxV;
   p.settings.modeMin=modeV;
   p.settings.alreadyBrokenSec = Math.max(0, Number(alreadyBrokenSecEl.value) || 0);
+  if (nonFoundMinSecEl && nonFoundMaxSecEl){
+    const nfMin = Math.max(0, Number(nonFoundMinSecEl.value) || 0);
+    const nfMax = Math.max(nfMin, Number(nonFoundMaxSecEl.value) || nfMin);
+    nonFoundMinSecEl.value = String(nfMin);
+    nonFoundMaxSecEl.value = String(nfMax);
+    p.settings.nonFoundMinSec = nfMin;
+    p.settings.nonFoundMaxSec = nfMax;
+  }
 
   p.settings.suggest=!!togSuggest.checked;
   p.settings.route=!!togRoute.checked;
@@ -428,14 +489,38 @@ function renderZones(clusters){
   const style = activeProfile().settings.mapStyle ?? "markers";
   if (style === "markers") return;
 
+  const keyOf=(c)=> `${Math.round(c.x*2)/2}_${Math.round(c.y*2)/2}`;
+  const groups=new Map();
+  for (const c of clusters){
+    const k=keyOf(c);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+
   for (const c of clusters){
     const z=document.createElement("div");
     z.className = "zone " + (c.level===25 ? "z25" : c.level===30 ? "z30" : "z35");
+    z.dataset.id = c.id;
+    z.dataset.key = keyOf(c);
     z.style.left = `${c.x}%`;
     z.style.top  = `${c.y}%`;
     const r = c.zoneR ?? 7;
     z.style.width = `${r*2}%`;
     z.style.height = `${r*2}%`;
+
+    z.addEventListener("click",(e)=>{
+      e.stopPropagation();
+      const grp = groups.get(z.dataset.key);
+      if (grp && grp.length>1){
+        openCardFor = z.dataset.key;
+        openCardIsPicker = true;
+      }else{
+        openCardFor = c.id;
+        openCardIsPicker = false;
+      }
+      renderAll();
+    });
+
     overlay.appendChild(z);
   }
 }
@@ -487,6 +572,9 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
   const next = computeNextSpawnMs(ch, cluster.id);
   const rem = next == null ? null : (next - nowMs());
 
+  const firstSlot = (timersArr(ch, cluster.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs)[0]) || null;
+  const status = firstSlot ? slotStatusText(firstSlot) : null;
+
   const slotsInfo = activeProfile().settings.detailed
     ? `slot ${arr.length}/${cluster.slots}`
     : (arr.length ? "timer attivo" : "nessun timer");
@@ -502,7 +590,7 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
         <span class="badge">CH ${ch}</span>
       </div>
     </div>
-    <div class="time">${next == null ? `<span class="muted">—</span>` : fmtCountdown(rem)}</div>
+    <div class="time">${next == null ? `<span class="muted">—</span>` : (status ? status.text : fmtCountdown(rem))}</div>
     <div class="sub">
       ${next == null ? `Nessun timer avviato • ${slotsInfo}` : `prox ~ ${fmtTime(next)} • ${slotsInfo}`}
       ${eta != null && isFinite(eta) ? `<br>ETA (viaggio+attesa+rottura): <b>${fmtCountdown(eta)}</b>` : ``}
@@ -511,6 +599,7 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
     <div class="btns">
       <button data-act="break">Rotto</button>
       <button data-act="broken">Trovato già rotto</button>
+      <button data-act="notfound">Non trovato</button>
       <button data-act="clear">Clear</button>
       <button data-act="close">Chiudi</button>
     </div>
@@ -524,8 +613,15 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
     if (!btn) return;
     e.stopPropagation();
     const act = btn.dataset.act;
-    if (act === "break"){ addTimer(ch, cluster, {skewMs:0}); }
-    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew}); }
+    if (act === "break"){ addTimer(ch, cluster, {skewMs:0, conf:"sure"}); }
+    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew, conf:"unsure"}); }
+    if (act === "notfound"){
+      const s = activeProfile().settings;
+      const a = Math.max(0, Number(s.nonFoundMinSec ?? 60));
+      const b = Math.max(a, Number(s.nonFoundMaxSec ?? 240));
+      const skew = (a === b) ? a*1000 : (a + Math.random()*(b-a))*1000;
+      addTimer(ch, cluster, {skewMs: skew, conf:"unsure"});
+    }
     if (act === "clear"){ clearTimers(ch, cluster.id); }
     if (act === "close"){ openCardFor=null; openCardIsPicker=false; }
     if (act === "clearSlot"){ /* handled below */ }
@@ -584,6 +680,18 @@ function buildPickerCard(ch, clusters, basePos, offsets){
   return card;
 }
 
+function addTimerLabel(ch, cluster, offset){
+  const label=document.createElement('div');
+  label.className='tlabel';
+  label.dataset.id=cluster.id;
+  label.style.left=`${cluster.x}%`;
+  label.style.top =`${cluster.y}%`;
+  label.style.setProperty('--ox', `${offset.ox||0}px`);
+  label.style.setProperty('--oy', `${offset.oy||0}px`);
+  mapWrap.appendChild(label);
+  return label;
+}
+
 function renderAll(){
   // clear
   mapWrap.querySelectorAll(".marker, .card").forEach(n=>n.remove());
@@ -591,6 +699,12 @@ function renderAll(){
   const ch = Number(chSelect.value);
   const clusters = visibleClusters();
   const offsets = computeOffsetsPx(clusters);
+
+  // timer labels (always)
+  for (const c of clusters){
+    const off = offsets.get(c.id) || {ox:0,oy:0};
+    addTimerLabel(ch, c, off);
+  }
 
   // zones
   renderZones(clusters);
@@ -728,8 +842,43 @@ function renderAll(){
 }
 
 // tick updates (cards + slots)
+function updateAllLabels(){
+  const ch = Number(chSelect.value);
+  const clusters = visibleClusters();
+  const byId = new Map(clusters.map(c=>[c.id,c]));
+  document.querySelectorAll('.tlabel').forEach(lab=>{
+    const id = lab.dataset.id;
+    const c = byId.get(id);
+    lab.classList.remove('sure','unsure','up','window','late');
+    if (!c){ lab.textContent=''; return; }
+    const info = clusterReadiness(ch, c);
+    if (!info.any){ lab.textContent=''; return; }
+    if (info.conf === 'unsure') lab.classList.add('unsure'); else lab.classList.add('sure');
+
+    if (info.ready > 0){
+      lab.textContent = `UP x${info.ready}`;
+      lab.classList.add('up');
+      return;
+    }
+    if (info.nextMinMs != null){
+      lab.textContent = fmtCountdown(info.nextMinMs - nowMs());
+      return;
+    }
+    // all late: show minimum overdue
+    const arr = timersArr(ch, c.id);
+    let best=null;
+    for (const sl of arr){
+      const st = slotStatusText(sl);
+      if (!best || (st.cls==='late' && best.cls!=='late')) best=st;
+    }
+    lab.textContent = best ? best.text : '—';
+    if (best && best.cls) lab.classList.add(best.cls);
+  });
+}
+
 function tick(){
   const ch = Number(chSelect.value);
+  updateAllLabels();
   // update main card countdowns
   mapWrap.querySelectorAll(".card").forEach(card=>{
     // for simplicity, rerender via animation frame is heavy; instead just update slot rows and main time if possible
@@ -745,7 +894,8 @@ function tick(){
     if (next==null){
       timeEl.innerHTML = `<span class="muted">—</span>`;
     } else {
-      timeEl.textContent = fmtCountdown(next - nowMs());
+      const firstSlot = (timersArr(ch, cluster.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs)[0]) || null;
+      timeEl.textContent = firstSlot ? slotStatusText(firstSlot).text : fmtCountdown(next - nowMs());
       const arr=timersArr(ch, cluster.id);
       const slotsInfo = activeProfile().settings.detailed
         ? `slot ${arr.length}/${cluster.slots}`
@@ -938,7 +1088,7 @@ function clearMeasure(){
 
   // Settings inputs
   [
-    minMinEl, modeMinEl, maxMinEl, alreadyBrokenSecEl,
+    minMinEl, modeMinEl, maxMinEl, spawnOffsetMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
     mapStyleEl, togSuggest, togRoute, togSpawnGlow, togDetailed,
     break25El, break30El, break35El, togBreakTime,
     secPerPctEl

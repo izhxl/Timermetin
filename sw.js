@@ -1,5 +1,5 @@
 
-const CACHE = "metin-villo2-refactor-v1.0-refactor";
+const CACHE = "metin-villo2-v0.0-revisioned";
 const ASSETS = [
   "./index.html",
   "./app.js",
