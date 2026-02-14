@@ -1,5 +1,5 @@
 
-const CACHE = "metin-villo2-v0.0-revisioned";
+const CACHE = "metin-villo2-v0.0-revisioned-b2";
 const ASSETS = [
   "./index.html",
   "./app.js",

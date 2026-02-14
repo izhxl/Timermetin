@@ -31,6 +31,8 @@ const CLUSTERS = [
   { id:"25_sw",     level:25, name:"25 • Sud-Ovest",        x:28.0, y:83.0, slots:2, zoneR:7.0 },
   { id:"25_c_band", level:25, name:"25 • Centro (fascia)",  x:56.0, y:43.0, slots:2, zoneR:7.0 },
   { id:"25_north",  level:25, name:"25 • Nord (nuova)",     x:44.0, y:10.0, slots:2, zoneR:7.0 },
+  { id:"35_w_n2",   level:35, name:"35 • Ovest (nord)",      x:29.0, y:31.0, slots:2, zoneR:6.5 },
+  { id:"35_ne",     level:35, name:"35 • Nord-Est",         x:70.0, y:18.0, slots:2, zoneR:7.0 },
 ];
 
 // === DOM ===
@@ -60,6 +62,8 @@ const mapStyleEl = document.getElementById("mapStyle");
 const togSuggest = document.getElementById("togSuggest");
 const togRoute = document.getElementById("togRoute");
 const togSpawnGlow = document.getElementById("togSpawnGlow");
+const autoPosLastEl = document.getElementById("autoPosLast");
+const chSuggestThresholdEl = document.getElementById("chSuggestThreshold");
 const togDetailed = document.getElementById("togDetailed");
 
 const break25El = document.getElementById("break25");
@@ -163,6 +167,8 @@ function defaultProfile(){
       suggest: true,
       route: false,
       spawnGlow: true,
+      autoPosLast: true,
+      chSuggestThreshold: 30,
       detailed: false,
       break25: 12,
       break30: 18,
@@ -173,6 +179,7 @@ function defaultProfile(){
     data: {
       timersByCh,
       playerPos: { x: 50, y: 50 },
+      excludedByCh: (()=>{ const m={}; for(let ch=1;ch<=CHANNELS;ch++) m[ch]={}; return m; })(),
       measure: {
         "25": { count:0, avg:0, running:false, startedMs:null },
         "30": { count:0, avg:0, running:false, startedMs:null },
@@ -256,6 +263,17 @@ function addTimer(ch, cluster, opts={}){
 
 // === movement ===
 function distPct(a,b){ const dx=a.x-b.x; const dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+function isExcluded(ch, clusterId){
+  const ex = activeProfile().data.excludedByCh?.[ch] || {};
+  return !!ex[clusterId];
+}
+function toggleExcluded(ch, clusterId){
+  const byCh = activeProfile().data.excludedByCh || (activeProfile().data.excludedByCh = {});
+  const ex = byCh[ch] || (byCh[ch] = {});
+  ex[clusterId] = !ex[clusterId];
+  saveState();
+}
+
 function travelSeconds(fromPos, cluster){
   const secPerPct = Number(activeProfile().settings.secPerPct) || 0;
   return distPct(fromPos, cluster) * secPerPct; // simple for now
@@ -279,6 +297,7 @@ function recommendedClusterId(ch){
   const fromPos = activeProfile().data.playerPos;
   let best=null;
   for (const c of visibleClusters()){
+    if (isExcluded(ch, c.id)) continue;
     if (computeNextSpawnMs(ch, c.id) == null) continue;
     const eta=etaMsEffective(ch,c,fromPos);
     if (!best || eta < best.eta) best={id:c.id, eta};
@@ -287,12 +306,26 @@ function recommendedClusterId(ch){
 }
 
 // Best CH suggestion (optional)
+function bestEtaOnCh(ch){
+  const fromPos = activeProfile().data.playerPos;
+  let best=null;
+  for (const c of visibleClusters()){
+    if (isExcluded(ch, c.id)) continue;
+    if (computeNextSpawnMs(ch, c.id) == null) continue;
+    const eta=etaMsEffective(ch,c,fromPos);
+    if (!best || eta < best.eta) best={ch, id:c.id, eta};
+  }
+  return best;
+}
+
 function recommendedCh(){
   if (!activeProfile().settings.suggest) return null;
   const fromPos = activeProfile().data.playerPos;
   let best=null;
   for (let ch=1; ch<=CHANNELS; ch++){
     for (const c of visibleClusters()){
+      if (isExcluded(ch, c.id)) continue;
+    if (isExcluded(ch, c.id)) continue;
       if (computeNextSpawnMs(ch, c.id) == null) continue;
       const eta=etaMsEffective(ch,c,fromPos);
       if (!best || eta < best.eta) best={ch, id:c.id, eta};
@@ -305,7 +338,7 @@ function routeOrder(ch){
   if (!activeProfile().settings.route) return {};
   let currentPos={...activeProfile().data.playerPos};
   let virtualNow=nowMs();
-  const candidates = visibleClusters().filter(c=>computeNextSpawnMs(ch,c.id)!=null);
+  const candidates = visibleClusters().filter(c=>computeNextSpawnMs(ch,c.id)!=null && !isExcluded(ch, c.id));
   const order={};
   let step=1;
 
@@ -432,6 +465,8 @@ function syncUIFromProfile(){
   togSuggest.checked = !!p.settings.suggest;
   togRoute.checked = !!p.settings.route;
   togSpawnGlow.checked = !!p.settings.spawnGlow;
+  if (autoPosLastEl) autoPosLastEl.checked = !!(p.settings.autoPosLast ?? true);
+  if (chSuggestThresholdEl) chSuggestThresholdEl.value = String(p.settings.chSuggestThreshold ?? 30);
   togDetailed.checked = !!p.settings.detailed;
 
   break25El.value=String(p.settings.break25);
@@ -600,6 +635,7 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
       <button data-act="break">Rotto</button>
       <button data-act="broken">Trovato già rotto</button>
       <button data-act="notfound">Non trovato</button>
+      <button data-act="exclude">Escludi/Include giro</button>
       <button data-act="clear">Clear</button>
       <button data-act="close">Chiudi</button>
     </div>
@@ -608,20 +644,27 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
     </div>
   `;
 
-  card.addEventListener("click", (e)=>{
+  function maybeAutoPos(cluster){
+  if (!!(activeProfile().settings.autoPosLast ?? true)){
+    activeProfile().data.playerPos = {x:cluster.x, y:cluster.y};
+  }
+}
+
+card.addEventListener("click", (e)=>{
     const btn = e.target.closest("button");
     if (!btn) return;
     e.stopPropagation();
     const act = btn.dataset.act;
-    if (act === "break"){ addTimer(ch, cluster, {skewMs:0, conf:"sure"}); }
-    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew, conf:"unsure"}); }
+    if (act === "break"){ addTimer(ch, cluster, {skewMs:0, conf:"sure"}); maybeAutoPos(cluster); }
+    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew, conf:"unsure"}); maybeAutoPos(cluster); }
     if (act === "notfound"){
       const s = activeProfile().settings;
       const a = Math.max(0, Number(s.nonFoundMinSec ?? 60));
       const b = Math.max(a, Number(s.nonFoundMaxSec ?? 240));
       const skew = (a === b) ? a*1000 : (a + Math.random()*(b-a))*1000;
-      addTimer(ch, cluster, {skewMs: skew, conf:"unsure"});
+      addTimer(ch, cluster, {skewMs: skew, conf:"unsure"}); maybeAutoPos(cluster);
     }
+    if (act === "exclude"){ toggleExcluded(ch, cluster.id); }
     if (act === "clear"){ clearTimers(ch, cluster.id); }
     if (act === "close"){ openCardFor=null; openCardIsPicker=false; }
     if (act === "clearSlot"){ /* handled below */ }
@@ -711,15 +754,20 @@ function renderAll(){
 
   // recommendation on CH (if different)
   const bestCh = recommendedCh();
+  const currentBest = bestEtaOnCh(ch);
+  const thresholdS = Number(activeProfile().settings.chSuggestThreshold ?? 30) || 0;
 
-  // player position marker
+  // player position marker (hidden in 'Zone' view)
   const pos = activeProfile().data.playerPos;
-  const posEl=document.createElement("div");
-  posEl.className="marker pos";
-  posEl.style.left=`${pos.x}%`;
-  posEl.style.top =`${pos.y}%`;
-  posEl.title="Posizione (tap mappa vuota per impostare)";
-  mapWrap.appendChild(posEl);
+  const styleNow = activeProfile().settings.mapStyle ?? "markers";
+  if (styleNow !== "zones"){
+    const posEl=document.createElement("div");
+    posEl.className="marker pos";
+    posEl.style.left=`${pos.x}%`;
+    posEl.style.top =`${pos.y}%`;
+    posEl.title="Posizione (tap mappa vuota per impostare)";
+    mapWrap.appendChild(posEl);
+  }
 
   const recommendId = recommendedClusterId(ch);
   const route = routeOrder(ch);
@@ -735,6 +783,18 @@ function renderAll(){
     const k=keyOf(c);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(c);
+  }
+
+
+  // ZONE_ONLY_CARD_RENDER: if markers are hidden, still show the selected cluster card
+  if (!drawMarkers && openCardFor && !openCardIsPicker){
+    const c = clusters.find(x=>x.id===openCardFor);
+    if (c){
+      const off = offsets.get(c.id) || {ox:0,oy:0};
+      const cardEl = buildClusterCard(ch, c, off);
+      mapWrap.appendChild(cardEl);
+      requestAnimationFrame(()=> clampCardIntoMap(cardEl));
+    }
   }
 
   if (drawMarkers){
@@ -812,7 +872,7 @@ function renderAll(){
   // CH suggestion toast (simple)
   const oldToast=document.getElementById("chToast");
   if (oldToast) oldToast.remove();
-  if (bestCh && bestCh.ch !== ch){
+  if (bestCh && bestCh.ch !== ch && currentBest && (currentBest.eta - bestCh.eta) >= thresholdS*1000){
     const toast=document.createElement("div");
     toast.id="chToast";
     toast.style.position="fixed";
@@ -1089,7 +1149,7 @@ function clearMeasure(){
   // Settings inputs
   [
     minMinEl, modeMinEl, maxMinEl, spawnOffsetMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
-    mapStyleEl, togSuggest, togRoute, togSpawnGlow, togDetailed,
+    mapStyleEl, togSuggest, togRoute, togSpawnGlow, autoPosLastEl, chSuggestThresholdEl, togDetailed,
     break25El, break30El, break35El, togBreakTime,
     secPerPctEl
   ].forEach(el=> el.addEventListener("change", syncSettingsFromUI));

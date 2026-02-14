@@ -39,7 +39,7 @@
     }
     .mapWrap img{ width:100%; height:auto; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none; }
     .overlay{ position:absolute; inset:0; pointer-events:auto; }
-.tlabel{ position:absolute; transform: translate(-50%, -100%) translate(var(--ox,0px), var(--oy,0px));
+.tlabel{ position:absolute; transform: translate(-50%, calc(-100% - 10px)) translate(var(--ox,0px), var(--oy,0px));
   padding:2px 6px; border-radius:999px; font-size:11px; font-weight:800;
   background: rgba(0,0,0,.72); border:1px solid rgba(255,255,255,.14);
   box-shadow: 0 2px 10px rgba(0,0,0,.45); pointer-events:none; white-space:nowrap;
@@ -231,6 +231,8 @@
         <label style="margin-top:8px;">Consiglia zona <input id="togSuggest" type="checkbox" checked></label>
         <label style="margin-top:8px;">Percorso ottimizzato <input id="togRoute" type="checkbox"></label>
         <label style="margin-top:8px;">Evidenzia “spawnato” <input id="togSpawnGlow" type="checkbox" checked></label>
+        <label style="margin-top:8px;">Auto-posizione su ultimo Metin <input id="autoPosLast" type="checkbox" checked></label>
+        <label style="margin-top:8px;">Soglia consiglio CH (s) <input id="chSuggestThreshold" type="number" min="0" step="5" value="30"></label>
         <label style="margin-top:8px;">Modalità dettagliata (slot) <input id="togDetailed" type="checkbox"></label>
       </div>
 
