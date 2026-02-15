@@ -4,6 +4,217 @@ const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
 const VERSION = "v0.0 revisioned";
 
+
+// === REALTIME_SYNC (Firebase Firestore) ===
+// Single room: rooms/villo2 (doc)
+const ROOM_ID = "villo2";
+const RT_KEY = "metin_villo2_realtime_enabled";
+const ROOM_PROFILE_ID = "room_shared_v1";
+
+let rt = {
+  enabled: false,
+  ready: false,
+  uid: null,
+  app: null,
+  db: null,
+  auth: null,
+  docRef: null,
+  unsub: null,
+  applyingRemote: false,
+  lastLocalWriteMs: 0,
+};
+
+function setRtStatus(txt){
+  if (!rtStatusEl) return;
+  rtStatusEl.textContent = txt;
+}
+function setRtUid(uid){
+  if (!rtUidEl || !rtUserLineEl) return;
+  if (uid){
+    rtUidEl.textContent = uid;
+    rtUserLineEl.style.display = "";
+  } else {
+    rtUserLineEl.style.display = "none";
+  }
+}
+
+function ensureRoomProfile(){
+  if (!state.profiles[ROOM_PROFILE_ID]){
+    const p = defaultProfile();
+    p.name = "Stanza (realtime)";
+    state.profiles[ROOM_PROFILE_ID] = p;
+  }
+}
+
+function switchToRoomProfile(){
+  ensureRoomProfile();
+  if (state.activeProfileId !== ROOM_PROFILE_ID){
+    state._lastLocalProfileId = state.activeProfileId;
+    state.activeProfileId = ROOM_PROFILE_ID;
+    saveState();
+    populateProfilesUI();
+    syncUIFromProfile();
+  }
+}
+function switchBackFromRoomProfile(){
+  const last = state._lastLocalProfileId;
+  if (last && state.profiles[last]){
+    state.activeProfileId = last;
+    saveState();
+    populateProfilesUI();
+    syncUIFromProfile();
+  }
+}
+
+async function ensureFirebase(){
+  if (rt.ready) return;
+  const cfg = window.FIREBASE_CONFIG;
+  if (!cfg) throw new Error("firebase-config-missing");
+
+  const [{ initializeApp }, { getAuth, signInAnonymously, onAuthStateChanged }, { getFirestore, doc, onSnapshot, setDoc, serverTimestamp }] =
+    await Promise.all([
+      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js"),
+      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js"),
+    ]);
+
+  if (!rt.app){
+    rt.app = initializeApp(cfg);
+    rt.auth = getAuth(rt.app);
+    rt.db = getFirestore(rt.app);
+    rt.docRef = doc(rt.db, "rooms", ROOM_ID);
+
+    await signInAnonymously(rt.auth);
+    onAuthStateChanged(rt.auth, (user)=>{
+      rt.uid = user ? user.uid : null;
+      setRtUid(rt.uid);
+    });
+  }
+  rt.ready = true;
+}
+
+function roomPayloadFromLocal(){
+  const p = state.profiles[ROOM_PROFILE_ID] ? state.profiles[ROOM_PROFILE_ID] : activeProfile();
+  return {
+    v: 1,
+    updatedAtClientMs: Date.now(),
+    shared: {
+      timersByCh: p.data.timersByCh,
+      excluded: p.data.excluded || {},
+      respawn: {
+        minMin: Number(p.settings.minMin),
+        modeMin: Number(p.settings.modeMin),
+        maxMin: Number(p.settings.maxMin),
+      }
+    }
+  };
+}
+
+async function writeRoomState(){
+  if (!rt.enabled || !rt.ready || !rt.docRef) return;
+  if (rt.applyingRemote) return;
+  try{
+    const { setDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
+    rt.lastLocalWriteMs = Date.now();
+    const payload = roomPayloadFromLocal();
+    payload.updatedAtServer = serverTimestamp();
+    await setDoc(rt.docRef, payload, { merge: true });
+    setRtStatus("ON • sync");
+  }catch(e){
+    console.error(e);
+    setRtStatus("Errore write");
+  }
+}
+
+function applyRoomToLocal(roomData){
+  if (!roomData || !roomData.shared) return;
+  const shared = roomData.shared;
+
+  switchToRoomProfile();
+  const p = state.profiles[ROOM_PROFILE_ID];
+
+  rt.applyingRemote = true;
+  try{
+    if (shared.respawn){
+      p.settings.minMin = Number(shared.respawn.minMin ?? p.settings.minMin);
+      p.settings.modeMin = Number(shared.respawn.modeMin ?? p.settings.modeMin);
+      p.settings.maxMin = Number(shared.respawn.maxMin ?? p.settings.maxMin);
+    }
+    if (shared.timersByCh){
+      p.data.timersByCh = shared.timersByCh;
+    }
+    if (shared.excluded){
+      p.data.excluded = shared.excluded;
+    }
+    saveState();
+    syncUIFromProfile();
+    renderAll();
+  } finally {
+    rt.applyingRemote = false;
+  }
+}
+
+async function connectRealtime(){
+  rt.enabled = true;
+  localStorage.setItem(RT_KEY, "1");
+  setRtStatus("Connessione...");
+  switchToRoomProfile();
+
+  try{
+    await ensureFirebase();
+  }catch(e){
+    console.error(e);
+    if (String(e).includes("firebase-config-missing")){
+      setRtStatus("Config mancante");
+    }else{
+      setRtStatus("Errore init");
+    }
+    rt.enabled = false;
+    localStorage.removeItem(RT_KEY);
+    if (rtEnableEl) rtEnableEl.checked = false;
+    return;
+  }
+
+  try{
+    const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
+    if (rt.unsub) rt.unsub();
+    rt.unsub = onSnapshot(rt.docRef, (snap)=>{
+      if (!snap.exists()){
+        writeRoomState();
+        return;
+      }
+      applyRoomToLocal(snap.data());
+      setRtStatus("ON");
+    }, (err)=>{
+      console.error(err);
+      setRtStatus("Errore listen");
+    });
+
+    writeRoomState();
+    setRtStatus("ON");
+  }catch(e){
+    console.error(e);
+    setRtStatus("Errore listen");
+  }
+}
+
+function disconnectRealtime(){
+  rt.enabled = false;
+  localStorage.removeItem(RT_KEY);
+  if (rt.unsub) { rt.unsub(); rt.unsub = null; }
+  setRtStatus("OFF");
+  setRtUid(null);
+  switchBackFromRoomProfile();
+  renderAll();
+}
+
+function maybeRealtimeAfterChange(){
+  if (!rt.enabled) return;
+  if (state.activeProfileId !== ROOM_PROFILE_ID) return;
+  writeRoomState();
+}
+// === /REALTIME_SYNC ===
+
 // === DATA: clusters (percent coords) ===
 // NOTE: These coords will be tuned as you/your friends test.
 // Overlapping clusters are allowed; UI offsets them automatically.
@@ -47,6 +258,10 @@ const profileManageBtn = document.getElementById("profileManageBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const resetChBtn = document.getElementById("resetChBtn");
 const resetAllChBtn = document.getElementById("resetAllChBtn");
+const rtEnableEl = document.getElementById("rtEnable");
+const rtStatusEl = document.getElementById("rtStatus");
+const rtUserLineEl = document.getElementById("rtUserLine");
+const rtUidEl = document.getElementById("rtUid");
 
 const sheetBackdrop = document.getElementById("sheetBackdrop");
 const closeSheetBtn = document.getElementById("closeSheetBtn");
@@ -54,7 +269,6 @@ const closeSheetBtn = document.getElementById("closeSheetBtn");
 const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
 const maxMinEl = document.getElementById("maxMin");
-const spawnOffsetMinEl = document.getElementById("spawnOffsetMin");
 const alreadyBrokenSecEl = document.getElementById("alreadyBrokenSec");
 const nonFoundMinSecEl = document.getElementById("nonFoundMinSec");
 const nonFoundMaxSecEl = document.getElementById("nonFoundMaxSec");
@@ -107,10 +321,9 @@ const escapeHtml=(s)=> (s ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").
 // triangular distribution
 function slotWindowState(slot){
   const s = activeProfile().settings;
-  const off = Number(s.spawnOffsetMin ?? 0) || 0;
-  const minMs = slot.startedMs + (Number(s.minMin) + off) * 60_000;
-  const maxMs = slot.startedMs + (Number(s.maxMin) + off) * 60_000;
-  const likelyMs = slot.startedMs + (Number(slot.rollMin ?? s.modeMin) + off) * 60_000;
+  const minMs = slot.startedMs + Number(s.minMin) * 60_000;
+  const maxMs = slot.startedMs + Number(s.maxMin) * 60_000;
+  const likelyMs = slot.startedMs + Number(slot.rollMin ?? s.modeMin) * 60_000;
   const t = nowMs();
   return { minMs, maxMs, likelyMs, t };
 }
@@ -170,10 +383,9 @@ function defaultProfile(){
       version: VERSION,
       filter: "all",
       mapStyle: "markers",
-      minMin: 10,
-      modeMin: 12.5,
-      maxMin: 15,
-      spawnOffsetMin: 10,
+      minMin: 22,
+      modeMin: 25,
+      maxMin: 28,
       alreadyBrokenSec: 60,
       nonFoundMinSec: 60,
       nonFoundMaxSec: 240,
@@ -192,7 +404,7 @@ function defaultProfile(){
     data: {
       timersByCh,
       playerPos: { x: 50, y: 50 },
-      excludedByCh: (()=>{ const m={}; for(let ch=1;ch<=CHANNELS;ch++) m[ch]={}; return m; })(),
+      excluded: {},
       measure: {
         "25": { count:0, avg:0, running:false, startedMs:null },
         "30": { count:0, avg:0, running:false, startedMs:null },
@@ -224,6 +436,7 @@ function setActiveProfile(id){
   refreshProfileSelect();
   syncUIFromProfile();
   renderAll();
+  startTicker();
 }
 
 // === timers model ===
@@ -249,11 +462,10 @@ function breakTimeForLevel(level){
 
 function addTimer(ch, cluster, opts={}){
   const s = activeProfile().settings;
-  const rollMin = randTriangular(Number(s.minMin), Number(s.modeMin), Number(s.maxMin));
-  const offsetMin = Number(s.spawnOffsetMin ?? 0) || 0;
+  const rollMin = (opts.forceRollMin != null) ? Number(opts.forceRollMin) : Number(s.modeMin);
   const skewMs = Math.max(0, Number(opts.skewMs || 0));
   const startedMs = nowMs() - skewMs;
-  const nextSpawnMs = startedMs + (rollMin + offsetMin) * 60_000;
+  const nextSpawnMs = startedMs + (rollMin) * 60_000;
 
   let arr = timersArr(ch, cluster.id).slice();
 
@@ -276,16 +488,29 @@ function addTimer(ch, cluster, opts={}){
 
 // === movement ===
 function distPct(a,b){ const dx=a.x-b.x; const dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
-function isExcluded(ch, clusterId){
-  const ex = activeProfile().data.excludedByCh?.[ch] || {};
-  return !!ex[clusterId];
+function isExcluded(_ch, clusterId){
+  const data = activeProfile().data;
+  const ex = data.excluded || {};
+  if (ex[clusterId] != null) return !!ex[clusterId];
+
+  // Backward compat: older builds stored excludedByCh
+  const byCh = data.excludedByCh;
+  if (byCh){
+    for (const k of Object.keys(byCh)){
+      if (byCh[k] && byCh[k][clusterId]) return true;
+    }
+  }
+  return false;
 }
-function toggleExcluded(ch, clusterId){
-  const byCh = activeProfile().data.excludedByCh || (activeProfile().data.excludedByCh = {});
-  const ex = byCh[ch] || (byCh[ch] = {});
+function toggleExcluded(_ch, clusterId){
+  const data = activeProfile().data;
+  const ex = data.excluded || (data.excluded = {});
   ex[clusterId] = !ex[clusterId];
+  if (data.excludedByCh) delete data.excludedByCh;
   saveState();
+  maybeRealtimeAfterChange();
 }
+
 
 function travelSeconds(fromPos, cluster){
   const secPerPct = Number(activeProfile().settings.secPerPct) || 0;
@@ -470,7 +695,6 @@ function syncUIFromProfile(){
   minMinEl.value = String(p.settings.minMin);
   modeMinEl.value = String(p.settings.modeMin);
   maxMinEl.value = String(p.settings.maxMin);
-  if (spawnOffsetMinEl) spawnOffsetMinEl.value = String(p.settings.spawnOffsetMin ?? 10);
   alreadyBrokenSecEl.value = String(p.settings.alreadyBrokenSec ?? 60);
   if (nonFoundMinSecEl) nonFoundMinSecEl.value = String(p.settings.nonFoundMinSec ?? 60);
   if (nonFoundMaxSecEl) nonFoundMaxSecEl.value = String(p.settings.nonFoundMaxSec ?? 240);
@@ -669,14 +893,14 @@ card.addEventListener("click", (e)=>{
     if (!btn) return;
     e.stopPropagation();
     const act = btn.dataset.act;
-    if (act === "break"){ addTimer(ch, cluster, {skewMs:0, conf:"sure"}); maybeAutoPos(cluster); }
-    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew, conf:"unsure"}); maybeAutoPos(cluster); }
+    if (act === "break"){ addTimer(ch, cluster, {skewMs:0, conf:"sure", forceRollMin: activeProfile().settings.modeMin}); maybeAutoPos(cluster); }
+    if (act === "broken"){ addTimer(ch, cluster, {skewMs: brokenSkew, conf:"unsure", forceRollMin: activeProfile().settings.modeMin}); maybeAutoPos(cluster); }
     if (act === "notfound"){
       const s = activeProfile().settings;
       const a = Math.max(0, Number(s.nonFoundMinSec ?? 60));
       const b = Math.max(a, Number(s.nonFoundMaxSec ?? 240));
       const skew = (a === b) ? a*1000 : (a + Math.random()*(b-a))*1000;
-      addTimer(ch, cluster, {skewMs: skew, conf:"unsure"}); maybeAutoPos(cluster);
+      addTimer(ch, cluster, {skewMs: skew, conf:"unsure", forceRollMin: activeProfile().settings.modeMin}); maybeAutoPos(cluster);
     }
     if (act === "exclude"){ toggleExcluded(ch, cluster.id); }
     if (act === "clear"){ clearTimers(ch, cluster.id); }
@@ -684,6 +908,7 @@ card.addEventListener("click", (e)=>{
     if (act === "clearSlot"){ /* handled below */ }
     saveState();
     renderAll();
+    maybeRealtimeAfterChange();
   });
 
   // clear specific slot
@@ -927,7 +1152,7 @@ function updateAllLabels(){
     const id = lab.dataset.id;
     const c = byId.get(id);
 
-    // In "zones" view show label only when that zone is selected (avoid black dot clutter)
+    // In "zones" view show labels only for the selected zone
     if (styleNow === "zones"){
       const show = (!openCardIsPicker && openCardFor === id);
       if (!show){
@@ -949,13 +1174,11 @@ function updateAllLabels(){
       return;
     }
 
-    // Show most probable (likely)
     if (info.nextLikelyMs != null){
       lab.textContent = `~${fmtCountdown(info.nextLikelyMs - nowMs())}`;
       return;
     }
 
-    // Otherwise show per-slot status (window/late)
     const arr = timersArr(ch, c.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs);
     const first = arr[0] || null;
     if (!first){ lab.textContent=''; return; }
@@ -966,8 +1189,27 @@ function updateAllLabels(){
 }
 
 
+function hasAnyTimersForCh(ch){
+  const t = activeProfile().data.timersByCh?.[ch];
+  if (!t) return false;
+  return Object.keys(t).length > 0;
+}
+let tickerId = null;
+function startTicker(){
+  if (tickerId) clearInterval(tickerId);
+  tickerId = setInterval(()=>{
+    if (document.visibilityState === "hidden") return;
+    const ch = Number(chSelect.value);
+    const anyTimers = hasAnyTimersForCh(ch);
+    const needs = anyTimers || (!!openCardFor);
+    if (!needs) return;
+    tick();
+  }, 1000);
+}
+
 function tick(){
   const ch = Number(chSelect.value);
+  if (!hasAnyTimersForCh(ch) && !openCardFor) return;
   updateAllLabels();
   // update main card countdowns
   mapWrap.querySelectorAll(".card").forEach(card=>{
@@ -1158,6 +1400,7 @@ function clearMeasure(){
     activeProfile().data.timersByCh[ch]={};
     saveState();
     renderAll();
+    maybeRealtimeAfterChange();
   });
 
   resetAllChBtn.addEventListener("click", ()=>{
@@ -1166,6 +1409,15 @@ function clearMeasure(){
     saveState();
     renderAll();
   });
+
+  // Realtime toggle
+  if (rtEnableEl){
+    rtEnableEl.checked = (localStorage.getItem(RT_KEY) === "1");
+    rtEnableEl.addEventListener("change", ()=>{
+      if (rtEnableEl.checked) connectRealtime(); else disconnectRealtime();
+    });
+    if (rtEnableEl.checked) connectRealtime();
+  }
 
   // Map click: (1) close popup, (2) set position
   mapWrap.addEventListener("click",(e)=>{
@@ -1185,7 +1437,7 @@ function clearMeasure(){
 
   // Settings inputs
   [
-    minMinEl, modeMinEl, maxMinEl, spawnOffsetMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
+    minMinEl, modeMinEl, maxMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
     mapStyleEl, togSuggest, togRoute, togSpawnGlow, autoPosLastEl, chSuggestThresholdEl, togDetailed,
     break25El, break30El, break35El, togBreakTime,
     secPerPctEl
