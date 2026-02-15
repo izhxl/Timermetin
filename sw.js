@@ -1,9 +1,8 @@
 
-const CACHE = "metin-villo2-v0.0-revisioned-realtime-safe-b3-livebar3";
+const CACHE = "metin-villo2-v0.0-revisioned-local-b5b2";
 const ASSETS = [
   "./index.html",
   "./app.js",
-  "./firebase-config.js",
   "./manifest.json",
   "./sw.js",
   "./villo2.png",

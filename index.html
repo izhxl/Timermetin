@@ -9,6 +9,7 @@
   <title>Metin Timer • Villo 2</title>
   <style>
     :root{
+      --livebarH: 160px;
       --bg:#111; --panel:#1b1b1b; --panel2:#0f0f0f; --line:#2a2a2a; --text:#eee;
       --shadow: 0 10px 28px rgba(0,0,0,.35);
     }
@@ -27,7 +28,8 @@
     header button{ cursor:pointer; }
     .tog{ display:flex; gap:6px; align-items:center; font-size:14px; }
     .hint{ margin-left:auto; opacity:.75; font-size:12px; }
-    main{ padding:12px 10px 24px; }
+    main{ padding-bottom: calc(var(--livebarH) + 18px);
+ padding:12px 10px 24px; }
     .mapWrap{
       position:relative;
       width:min(980px, 98vw);
@@ -163,37 +165,42 @@
       .card{ min-width: 240px; }
     }
   
+#liveBar button{
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.18);
+  color: var(--txt);
+  border-radius: 14px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+#liveBar button:active{ transform: translateY(1px); }
+#liveBar button[disabled]{ opacity:.45; }
 
-    .liveBar{ position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
-      z-index: 60; background: rgba(16,16,18,.92); border: 1px solid rgba(255,255,255,.14);
-      border-radius: 18px; padding: 10px 10px; box-shadow: 0 12px 36px rgba(0,0,0,.45);
-      backdrop-filter: blur(10px); display: none; }
-    .liveBar.show{ display:block; }
-    .liveHdr{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-    .liveTitle{ font-weight:900; font-size:13px; line-height:1.2; }
-    .liveSub{ font-size:12px; opacity:.8; margin-top:2px; }
-    .liveClose{ width:34px; height:34px; border-radius:12px; background:rgba(255,255,255,.08);
-      border:1px solid rgba(255,255,255,.14); color:var(--text); font-weight:900; }
-    .liveReco{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
-    .liveRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px;
-      border-radius:14px; border:1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); cursor:pointer; }
-    .liveRow.disabled{ cursor:default; opacity:.6; }
-    .liveRow .meta{ font-size:12px; font-weight:900; }
-    .liveRow .small{ font-size:12px; opacity:.85; }
-    .liveRow .eta{ font-size:12px; font-weight:900; font-variant-numeric: tabular-nums; }
-    .liveRow.sure{ border-color: rgba(120,255,160,.35); background: rgba(20,70,30,.22); }
-    .liveRow.unsure{ border-color: rgba(255,210,90,.35); background: rgba(70,55,18,.22); }
-    .liveBtns{ display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin-top:10px; }
-    .liveBtns button{ padding:8px 6px; border-radius:14px; border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.06); color:var(--text); font-weight:800; font-size:12px; }
-    .liveNote{ margin-top:8px; font-size:12px; opacity:.78; }
-    @media (max-width: 520px){ .liveBtns{ grid-template-columns: repeat(2, 1fr); } }
-    </style>
+
+    .marker.selected{ outline:3px solid rgba(255,255,255,.85); outline-offset:2px; box-shadow:0 0 0 6px rgba(255,255,255,.10); }
+    .zone.selected{ box-shadow:0 0 0 3px rgba(255,255,255,.35) inset, 0 0 0 2px rgba(0,0,0,.35); }
+    .recoRow{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:7px 9px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.28);
+      user-select:none;
+    }
+    .recoRow .meta{ font-size:12px; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .recoRow .eta{ font-size:12px; font-weight:900; font-variant-numeric: tabular-nums; white-space:nowrap; }
+    .recoRow.sure{ border-color: rgba(120,255,160,.35); background: rgba(20,70,30,.22); }
+    .recoRow.unsure{ border-color: rgba(255,210,90,.35); background: rgba(70,55,18,.22); }
+    .recoRow.disabled{ opacity:.55; }
+</style>
 </head>
 <body>
 <div id="fatalErr" style="display:none; position:fixed; z-index:99999; left:8px; right:8px; top:8px; background:rgba(40,10,10,.92); border:1px solid rgba(255,120,120,.45); color:#ffd6d6; padding:10px 12px; border-radius:12px; font-family:system-ui; font-size:12px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;"><div style="font-weight:800;">Errore app</div><button id="fatalErrClose" type="button" style="background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:#ffecec; border-radius:10px; padding:4px 8px; font-size:12px;">Chiudi</button></div><div style="margin-bottom:6px;"></div>
-  <div id="fatalErrMsg" style="white-space:pre-wrap;"></div>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+    <div style="font-weight:900;">Errore app</div>
+    <button id="fatalErrClose" type="button" style="background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:#ffecec; border-radius:10px; padding:4px 8px; font-size:12px;">Nascondi</button>
+  </div>
+  <div id="fatalErrMsg" style="white-space:pre-wrap; margin-top:6px;"></div>
 </div>
 <header>
   <select id="profileSelect" title="Profilo"></select>
@@ -262,14 +269,33 @@
         <label style="margin-top:8px;">Evidenzia “spawnato” <input id="togSpawnGlow" type="checkbox" checked></label>
         <label style="margin-top:8px;">Auto-posizione su ultimo Metin <input id="autoPosLast" type="checkbox" checked></label>
         <label style="margin-top:8px;">Soglia consiglio CH (s) <input id="chSuggestThreshold" type="number" min="0" step="5" value="30"></label>
-        <label style="margin-top:8px;">Modalità dettagliata (slot) <input id="togDetailed" type="checkbox"></label>
+        <label style="margin-top:8px;">Modalità slot (multi spawn) <input id="togDetailed" type="checkbox"></label>
+        <label style="margin-top:8px;">UI: barra (no popup)
+          <select id="uiMode" style="margin-left:8px;">
+            <option value="bar">Barra (no popup)</option>
+            <option value="popup">Popup (classico)</option>
+          </select>
+        </label>
+        <label style="margin-top:8px;">Vista Metin
+          <select id="metinView" style="margin-left:8px;">
+            <option value="detailedLevels">Dettagliata (25/30/35)</option>
+            <option value="simple">Semplificata (solo 30)</option>
+          </select>
+        </label>
+        <label style="margin-top:8px;">Auto-clear se ritardo &gt; 5 min <input id="autoClearLate" type="checkbox"></label>
       </div>
 
       <div class="box">
         <div style="font-weight:800; margin-bottom:8px;">Tempi rottura (s)</div>
+        <div id="breakDetailed">
         <label>Metin 25 <input id="break25" type="number" min="0" value="12"></label>
-        <label style="margin-top:8px;">Metin 30 <input id="break30" type="number" min="0" value="18"></label>
-        <label style="margin-top:8px;">Metin 35 <input id="break35" type="number" min="0" value="25"></label>
+                <label style="margin-top:8px;">Metin 30 <input id="break30" type="number" min="0" value="18"></label>
+                <label style="margin-top:8px;">Metin 35 <input id="break35" type="number" min="0" value="25"></label>
+        </div>
+        <div id="breakSimple" style="display:none;">
+          <label>Tempo rottura medio <input id="breakAvg" type="number" min="0" step="1" value="18"></label>
+          <div class="muted" style="margin-top:6px; font-size:12px;">Usato per tutti i Metin in modalità semplificata.</div>
+        </div>
         <label style="margin-top:8px;">Considera rottura <input id="togBreakTime" type="checkbox" checked></label>
       </div>
 
@@ -293,20 +319,6 @@
         </div>
         <div class="muted" style="margin-top:8px; font-size:12px;">Export/Import = sincronizzazione manuale tra dispositivi.</div>
       </div>
-      </div>
-
-      <div class="box">
-        <div style="font-weight:800; margin-bottom:8px;">Realtime (stanza)</div>
-        <label>Realtime ON <input id="rtEnable" type="checkbox"></label>
-        <div class="muted" style="margin-top:8px; font-size:12px;">Stanza: <b>villo2</b> (unica)</div>
-        <div class="muted" style="margin-top:6px; font-size:12px;">Stato: <span id="rtStatus">OFF</span></div>
-<div style="margin-top:10px;"><button id="rtRetry" type="button">Riprova connessione</button></div>
-        <div class="muted" id="rtUserLine" style="margin-top:6px; font-size:12px; display:none;">UID: <span id="rtUid"></span></div>
-        <div class="muted" style="margin-top:8px; font-size:12px;">
-          Per attivare: incolla la config in <b>firebase-config.js</b> (nel repo). Poi abilita “Anonymous” su Firebase Auth e (se ti dà errore <i>unauthorized-domain</i>) aggiungi il dominio GitHub Pages tra gli “Authorized domains”.
-        </div>
-      </div>
-
 
       <div class="box">
         <div style="font-weight:800; margin-bottom:8px;">Misura tempo rottura</div>
@@ -329,67 +341,36 @@
   </div>
 </div>
 
-<div class="liveBar" id="liveBar" aria-live="polite">
-  <div class="liveHdr">
-    <div>
-      <div class="liveTitle" id="liveTitle">Seleziona un Metin</div>
-      <div class="liveSub" id="liveSub">Tocca un puntino/zona sulla mappa</div>
+<button id="liveShow" type="button" style="display:none; position:fixed; right:12px; bottom:12px; z-index:60; background:rgba(18,22,30,.92); border:1px solid rgba(255,255,255,.18); color:#e8eefc; border-radius:999px; padding:10px 12px; font-weight:900; font-size:12px; backdrop-filter: blur(10px);">Barra</button>
+<div id="liveBar" style="position:fixed; left:0; right:0; bottom:0; z-index:50; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); background:rgba(18,22,30,.92); border-top:1px solid rgba(255,255,255,.14); backdrop-filter: blur(10px);">
+  
+  <div id="liveRecoWrap" style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
+    <div class="recoRow sure" id="liveRecoSure" role="button" tabindex="0">
+      <div class="meta" id="liveRecoSureMeta">Sicuro: —</div>
+      <div class="eta" id="liveRecoSureEta"></div>
     </div>
-    <button class="liveClose" id="liveCloseBtn" type="button">×</button>
-  </div>
-
-  <div class="liveReco">
-    <div class="liveRow sure" id="liveSureRow" role="button" tabindex="0">
-      <div class="lcol">
-        <div class="meta" id="liveSureMeta">Sicuro: —</div>
-        <div class="small" id="liveSureSmall"></div>
-      </div>
-      <div class="eta" id="liveSureEta"></div>
-    </div>
-
-    <div class="liveRow unsure" id="liveUnsureRow" role="button" tabindex="0">
-      <div class="lcol">
-        <div class="meta" id="liveUnsureMeta">Non sicuro: —</div>
-        <div class="small" id="liveUnsureSmall"></div>
-      </div>
-      <div class="eta" id="liveUnsureEta"></div>
+    <div class="recoRow unsure" id="liveRecoUnsure" role="button" tabindex="0">
+      <div class="meta" id="liveRecoUnsureMeta">Non sicuro: —</div>
+      <div class="eta" id="liveRecoUnsureEta"></div>
     </div>
   </div>
-
-  <div class="liveBtns">
-    <button id="liveBreakBtn" type="button">Rotto</button>
-    <button id="liveBrokenBtn" type="button">Trovato già rotto</button>
-    <button id="liveNotFoundBtn" type="button">Non trovato</button>
-    <button id="liveExcludeBtn" type="button">Escludi</button>
-    <button id="liveClearBtn" type="button">Clear</button>
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+    <div style="min-width:0;">
+      <div style="font-weight:900; font-size:13px;" id="liveTitle">Selezione: —</div>
+      <div style="font-size:12px; opacity:.85; margin-top:2px;" id="liveSub">Tocca un puntino o una zona</div>
+    </div>
+    <button id="liveHide" type="button" style="flex:0 0 auto; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:#e8eefc; border-radius:12px; padding:6px 10px; font-size:12px;">Chiudi</button>
   </div>
-
-  <div class="liveNote" id="liveNote">Tip: seleziona una zona, poi usa i pulsanti qui.</div>
+  <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+    <button id="liveBreak" type="button">Rotto</button>
+    <button id="liveBroken" type="button">Trovato già rotto</button>
+    <button id="liveNotFound" type="button">Non trovato</button>
+    <button id="liveExclude" type="button">Escludi/Include giro</button>
+    <button id="liveClear" type="button">Clear</button>
+    <button id="liveOpenCard" type="button">Dettagli</button>
+  </div>
 </div>
 
-
-
-<script>
-/* FORCE_UPDATE_BUILD b3-livebar3 */
-(function(){
-  const BUILD="b3-livebar3";
-  try{
-    const prev = localStorage.getItem("metin_build_id");
-    if (prev !== BUILD){
-      localStorage.setItem("metin_build_id", BUILD);
-      if ("serviceWorker" in navigator){
-        navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).catch(()=>{});
-      }
-      if (window.caches){
-        caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).catch(()=>{});
-      }
-      setTimeout(()=> location.reload(true), 50);
-    }
-  }catch(e){}
-})();
-</script>
-
-<script src="firebase-config.js"></script>
-<script type="module" src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

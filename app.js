@@ -4,272 +4,23 @@ const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
 const VERSION = "v0.0 revisioned";
 
-// Show any fatal JS error on-screen (helps debugging on iPhone PWA)
-function showFatal(e){
-  const closeBtn = document.getElementById("fatalErrClose");
-  if (closeBtn && !closeBtn.dataset.bound){
-    closeBtn.dataset.bound = "1";
-    closeBtn.addEventListener("click", ()=>{
-      try{ const box=document.getElementById("fatalErr"); if (box) box.style.display="none"; }catch(_){ }
-    });
-  }
-
+function showFatal(err){
   try{
-    const box = document.getElementById("fatalErr");
-    const msgEl = document.getElementById("fatalErrMsg");
+    const box=document.getElementById("fatalErr");
+    const msgEl=document.getElementById("fatalErrMsg");
+    const closeBtn=document.getElementById("fatalErrClose");
     if (!box || !msgEl) return;
-    const msg = (e && (e.message || e.reason)) ? (e.message || e.reason) : String(e);
+    const msg = (err && (err.message || err.reason)) ? (err.message || err.reason) : String(err);
     msgEl.textContent = msg;
     box.style.display = "";
-    try{
-      if (!box.dataset.bound){
-        box.dataset.bound = "1";
-        box.addEventListener("click", (ev)=>{
-          if (ev.target && (ev.target.id === "fatalErr")) box.style.display = "none";
-        });
-      }
-    }catch(_){ }
-
+    if (closeBtn && !closeBtn.dataset.bound){
+      closeBtn.dataset.bound="1";
+      closeBtn.addEventListener("click", ()=> box.style.display="none");
+    }
   }catch(_){}
 }
 window.addEventListener("error", (ev)=> showFatal(ev.error || ev.message));
 window.addEventListener("unhandledrejection", (ev)=> showFatal(ev.reason));
-
-
-// === REALTIME_SYNC (Firebase Firestore) ===
-// Single room: rooms/villo2 (doc)
-const ROOM_ID = "villo2";
-const RT_KEY = "metin_villo2_realtime_enabled";
-const ROOM_PROFILE_ID = "room_shared_v1";
-
-let rt = {
-  enabled: false,
-  ready: false,
-  uid: null,
-  app: null,
-  db: null,
-  auth: null,
-  docRef: null,
-  unsub: null,
-  applyingRemote: false,
-  lastLocalWriteMs: 0,
-  syncedOnce: false,
-};
-
-function setRtStatus(txt){
-  if (!rtStatusEl) return;
-  rtStatusEl.textContent = txt;
-}
-function rtErrText(e){
-  if (!e) return "errore";
-  const code = e.code || e.name || "";
-  const msg = e.message || String(e);
-  return (code ? (code + ": ") : "") + msg;
-}
-function setRtUid(uid){
-  if (!rtUidEl || !rtUserLineEl) return;
-  if (uid){
-    rtUidEl.textContent = uid;
-    rtUserLineEl.style.display = "";
-  } else {
-    rtUserLineEl.style.display = "none";
-  }
-}
-
-function ensureRoomProfile(){
-  if (!state.profiles[ROOM_PROFILE_ID]){
-    const p = defaultProfile();
-    p.name = "Stanza (realtime)";
-    state.profiles[ROOM_PROFILE_ID] = p;
-  }
-}
-
-function switchToRoomProfile(){
-  ensureRoomProfile();
-  if (state.activeProfileId !== ROOM_PROFILE_ID){
-    state._lastLocalProfileId = state.activeProfileId;
-    state.activeProfileId = ROOM_PROFILE_ID;
-    saveState();
-    populateProfilesUI();
-    syncUIFromProfile();
-  }
-}
-function switchBackFromRoomProfile(){
-  const last = state._lastLocalProfileId;
-  if (last && state.profiles[last]){
-    state.activeProfileId = last;
-    saveState();
-    populateProfilesUI();
-    syncUIFromProfile();
-  }
-}
-
-async function ensureFirebase(){
-  setRtStatus("Carico SDK...");
-  if (rt.ready) return;
-  const cfg = window.FIREBASE_CONFIG;
-  if (!cfg) throw new Error("firebase-config-missing");
-
-  const [{ initializeApp }, { getAuth, signInAnonymously, onAuthStateChanged }, { getFirestore, doc, onSnapshot, setDoc, serverTimestamp }] =
-    await Promise.all([
-      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js"),
-    ]);
-
-  if (!rt.app){
-    rt.app = initializeApp(cfg);
-    rt.auth = getAuth(rt.app);
-    rt.db = getFirestore(rt.app);
-    rt.docRef = doc(rt.db, "rooms", ROOM_ID);
-
-    setRtStatus("Login anonimo...");
-    if (!rt.auth.currentUser) await signInAnonymously(rt.auth);
-    onAuthStateChanged(rt.auth, (user)=>{
-      rt.uid = user ? user.uid : null;
-      setRtUid(rt.uid);
-    });
-  }
-  rt.ready = true;
-}
-
-function roomPayloadFromLocal(){
-  const p = state.profiles[ROOM_PROFILE_ID] ? state.profiles[ROOM_PROFILE_ID] : activeProfile();
-  return {
-    v: 1,
-    updatedAtClientMs: Date.now(),
-    shared: {
-      timersByCh: p.data.timersByCh,
-      excluded: p.data.excluded || {},
-      respawn: {
-        minMin: Number(p.settings.minMin),
-        modeMin: Number(p.settings.modeMin),
-        maxMin: Number(p.settings.maxMin),
-      }
-    }
-  };
-}
-
-async function writeRoomState(opts={}){
-  const seed = !!opts.seed;
-  if (!rt.enabled || !rt.ready || !rt.docRef) return;
-  if (rt.applyingRemote) return;
-  if (!seed && !rt.syncedOnce) return;
-  try{
-    const { setDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
-    rt.lastLocalWriteMs = Date.now();
-    const payload = roomPayloadFromLocal();
-    payload.updatedAtServer = serverTimestamp();
-    await setDoc(rt.docRef, payload);
-    setRtStatus("ON • sync");
-  }catch(e){
-    console.error(e);
-    setRtStatus("Write: " + rtErrText(e));
-  }
-}
-
-function applyRoomToLocal(roomData){
-  if (!roomData || !roomData.shared) return;
-  const shared = roomData.shared;
-
-  switchToRoomProfile();
-  const p = state.profiles[ROOM_PROFILE_ID];
-
-  rt.applyingRemote = true;
-  try{
-    if (shared.respawn){
-      p.settings.minMin = Number(shared.respawn.minMin ?? p.settings.minMin);
-      p.settings.modeMin = Number(shared.respawn.modeMin ?? p.settings.modeMin);
-      p.settings.maxMin = Number(shared.respawn.maxMin ?? p.settings.maxMin);
-    }
-    if (shared.timersByCh){
-      p.data.timersByCh = shared.timersByCh;
-    }
-    if (shared.excluded){
-      p.data.excluded = shared.excluded;
-    }
-    saveState();
-    syncUIFromProfile();
-    renderAll();
-  } finally {
-    rt.applyingRemote = false;
-  }
-}
-
-async function connectRealtime(){
-  rt.enabled = true;
-  rt.syncedOnce = false;
-  localStorage.setItem(RT_KEY, "1");
-  setRtStatus("Connessione...");
-  if (rt.unsub){ try{ rt.unsub(); }catch{} rt.unsub=null; }
-
-  const rtConnectTimeout = setTimeout(()=>{
-    if (rt.enabled && rtStatusEl && rtStatusEl.textContent.startsWith("Connessione")){
-      setRtStatus("Timeout: controlla Auth domains / Rules");
-    }
-  }, 12000);
-
-  switchToRoomProfile();
-
-  try{
-    await ensureFirebase();
-    await new Promise(r=>setTimeout(r, 150));
-  }catch(e){
-    console.error(e);
-    if (String(e).includes("firebase-config-missing")){
-      setRtStatus("Config mancante");
-    }else{
-      setRtStatus("Init: " + rtErrText(e));
-    }
-    rt.enabled = false;
-    localStorage.removeItem(RT_KEY);
-    if (rtEnableEl) rtEnableEl.checked = false;
-    return;
-  }
-
-  try{
-    const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
-    if (rt.unsub){ try{ rt.unsub(); }catch{} rt.unsub=null; }
-
-    rt.unsub = onSnapshot(rt.docRef, async (snap)=>{
-      if (!rt.enabled) return;
-
-      if (!snap.exists()){
-        // Seed only if the room doc does not exist yet.
-        await writeRoomState({seed:true});
-        return;
-      }
-
-      applyRoomToLocal(snap.data());
-      rt.syncedOnce = true;
-      clearTimeout(rtConnectTimeout);
-      setRtStatus("ON");
-    }, (err)=>{
-      console.error(err);
-      setRtStatus("Listen: " + rtErrText(err));
-    });
-
-    // IMPORTANT: do NOT write here (prevents overwriting the room with stale local state on reconnect).
-  }catch(e){
-    console.error(e);
-    setRtStatus("Listen: " + rtErrText(e));
-  }
-}
-
-function disconnectRealtime(){
-  rt.enabled = false;
-  localStorage.removeItem(RT_KEY);
-  if (rt.unsub) { try{ rt.unsub(); }catch{} rt.unsub = null; }
-  setRtStatus("OFF");
-  // Soft disconnect: keep Firebase/auth loaded so ON works reliably.
-}
-
-function maybeRealtimeAfterChange(){
-  if (!rt.enabled) return;
-  if (state.activeProfileId !== ROOM_PROFILE_ID) return;
-  writeRoomState();
-}
-// === /REALTIME_SYNC ===
 
 // === DATA: clusters (percent coords) ===
 // NOTE: These coords will be tuned as you/your friends test.
@@ -304,6 +55,27 @@ const CLUSTERS = [
 
 // === DOM ===
 const mapWrap = document.getElementById("mapWrap");
+const liveBarEl = document.getElementById("liveBar");
+const liveTitleEl = document.getElementById("liveTitle");
+const liveSubEl = document.getElementById("liveSub");
+const liveRecoWrapEl = document.getElementById("liveRecoWrap");
+const liveRecoSureEl = document.getElementById("liveRecoSure");
+const liveRecoUnsureEl = document.getElementById("liveRecoUnsure");
+const liveRecoSureMetaEl = document.getElementById("liveRecoSureMeta");
+const liveRecoSureEtaEl = document.getElementById("liveRecoSureEta");
+const liveRecoUnsureMetaEl = document.getElementById("liveRecoUnsureMeta");
+const liveRecoUnsureEtaEl = document.getElementById("liveRecoUnsureEta");
+const liveCloseBtn = null; // deprecated
+
+const liveBreakBtn = document.getElementById("liveBreak");
+const liveBrokenBtn = document.getElementById("liveBroken");
+const liveNotFoundBtn = document.getElementById("liveNotFound");
+const liveExcludeBtn = document.getElementById("liveExclude");
+const liveClearBtn = document.getElementById("liveClear");
+const liveOpenCardBtn = document.getElementById("liveOpenCard");
+const liveShowBtn = document.getElementById("liveShow");
+const liveHideBtn = document.getElementById("liveHide");
+
 const overlay = document.getElementById("overlay");
 const chSelect = document.getElementById("chSelect");
 const filterSelect = document.getElementById("filterSelect");
@@ -314,32 +86,9 @@ const profileManageBtn = document.getElementById("profileManageBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const resetChBtn = document.getElementById("resetChBtn");
 const resetAllChBtn = document.getElementById("resetAllChBtn");
-const rtEnableEl = document.getElementById("rtEnable");
-const rtStatusEl = document.getElementById("rtStatus");
-const rtUserLineEl = document.getElementById("rtUserLine");
-const rtUidEl = document.getElementById("rtUid");
-const rtRetryEl = document.getElementById("rtRetry");
 
 const sheetBackdrop = document.getElementById("sheetBackdrop");
 const closeSheetBtn = document.getElementById("closeSheetBtn");
-const liveBarEl = document.getElementById("liveBar");
-const liveTitleEl = document.getElementById("liveTitle");
-const liveSubEl = document.getElementById("liveSub");
-const liveCloseBtn = document.getElementById("liveCloseBtn");
-const liveSureMetaEl = document.getElementById("liveSureMeta");
-const liveSureSmallEl = document.getElementById("liveSureSmall");
-const liveSureEtaEl = document.getElementById("liveSureEta");
-const liveUnsureMetaEl = document.getElementById("liveUnsureMeta");
-const liveUnsureSmallEl = document.getElementById("liveUnsureSmall");
-const liveUnsureEtaEl = document.getElementById("liveUnsureEta");
-const liveBreakBtn = document.getElementById("liveBreakBtn");
-const liveBrokenBtn = document.getElementById("liveBrokenBtn");
-const liveNotFoundBtn = document.getElementById("liveNotFoundBtn");
-const liveExcludeBtn = document.getElementById("liveExcludeBtn");
-const liveClearBtn = document.getElementById("liveClearBtn");
-const liveSureRow = document.getElementById("liveSureRow");
-const liveUnsureRow = document.getElementById("liveUnsureRow");
-const liveNoteEl = document.getElementById("liveNote");
 
 const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
@@ -355,6 +104,12 @@ const togSpawnGlow = document.getElementById("togSpawnGlow");
 const autoPosLastEl = document.getElementById("autoPosLast");
 const chSuggestThresholdEl = document.getElementById("chSuggestThreshold");
 const togDetailed = document.getElementById("togDetailed");
+const uiModeEl = document.getElementById("uiMode");
+const metinViewEl = document.getElementById("metinView");
+const autoClearLateEl = document.getElementById("autoClearLate");
+const breakDetailedWrap = document.getElementById("breakDetailed");
+const breakSimpleWrap = document.getElementById("breakSimple");
+const breakAvgEl = document.getElementById("breakAvg");
 
 const break25El = document.getElementById("break25");
 const break30El = document.getElementById("break30");
@@ -475,6 +230,10 @@ function defaultProfile(){
       break35: 25,
       useBreakTime: true,
       secPerPct: 2.0,
+      uiMode: "bar",
+      metinView: "detailedLevels",
+      liveBarHidden: false,
+      autoClearLate: false,
     },
     data: {
       timersByCh,
@@ -511,35 +270,6 @@ function setActiveProfile(id){
   refreshProfileSelect();
   syncUIFromProfile();
   renderAll();
-  // Live bar buttons
-  liveBreakBtn?.addEventListener("click", ()=> liveAct("break"));
-  liveBrokenBtn?.addEventListener("click", ()=> liveAct("already"));
-  liveNotFoundBtn?.addEventListener("click", ()=> liveAct("notfound"));
-  liveExcludeBtn?.addEventListener("click", ()=> liveAct("exclude"));
-  liveClearBtn?.addEventListener("click", ()=> liveAct("clear"));
-
-  liveCloseBtn?.addEventListener("click", ()=>{
-    openCardFor = null; openCardIsPicker = false;
-    renderAll();
-  });
-
-  liveSureRow?.addEventListener("click", ()=>{
-    const best = bestTargetByConf("sure");
-    if (!best) return;
-    chSelect.value = String(best.ch);
-    openCardFor = best.cluster.id;
-    openCardIsPicker = false;
-    renderAll();
-  });
-  liveUnsureRow?.addEventListener("click", ()=>{
-    const best = bestTargetByConf("unsure");
-    if (!best) return;
-    chSelect.value = String(best.ch);
-    openCardFor = best.cluster.id;
-    openCardIsPicker = false;
-    renderAll();
-  });
-
   startTicker();
 }
 
@@ -612,7 +342,6 @@ function toggleExcluded(_ch, clusterId){
   ex[clusterId] = !ex[clusterId];
   if (data.excludedByCh) delete data.excludedByCh;
   saveState();
-  maybeRealtimeAfterChange();
 }
 
 
@@ -633,97 +362,6 @@ function etaMsEffective(ch, cluster, fromPos, virtualNow=null){
   return Math.max(remMs, travelMs) + breakMs;
 }
 
-
-function setLiveText(el, txt){ if (el) el.textContent = txt; }
-function clusterById(id){ const clusters = visibleClusters(); return clusters.find(c=>c.id===id) || null; }
-function fmtTime(ms){ if (ms==null || !Number.isFinite(ms)) return ""; return new Date(ms).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}); }
-
-function bestTargetByConf(confWanted){
-  const fromPos = activeProfile().data.playerPos;
-  let best=null;
-  const t = nowMs();
-  for (let ch=1; ch<=CHANNELS; ch++){
-    for (const c of visibleClusters()){
-      if (isExcluded(ch, c.id)) continue;
-      const rd = clusterReadiness(ch, c);
-      if (!rd.any) continue;
-      if (confWanted && rd.conf !== confWanted) continue;
-      const spawnMs = rd.nextLikelyMs ?? rd.nextMinMs ?? null;
-      if (spawnMs == null) continue;
-      const travelMs = travelSeconds(fromPos, c) * 1000;
-      const breakMs = (activeProfile().settings.useBreakTime ? breakTimeForLevel(c.level) * 1000 : 0);
-      const remMs = spawnMs - t;
-      const etaMs = Math.max(remMs, travelMs) + breakMs;
-      if (!best || etaMs < best.etaMs){
-        best = { ch, id: c.id, cluster: c, etaMs, spawnMs, conf: rd.conf };
-      }
-    }
-  }
-  return best;
-}
-
-function updateRecoRow(best, kind){
-  const isSure = kind === "sure";
-  const metaEl = isSure ? liveSureMetaEl : liveUnsureMetaEl;
-  const smallEl = isSure ? liveSureSmallEl : liveUnsureSmallEl;
-  const etaEl = isSure ? liveSureEtaEl : liveUnsureEtaEl;
-  const rowEl = isSure ? liveSureRow : liveUnsureRow;
-  if (!best){
-    setLiveText(metaEl, (isSure ? "Sicuro: —" : "Non sicuro: —"));
-    setLiveText(smallEl, ""); setLiveText(etaEl, "");
-    rowEl?.classList.add("disabled");
-    return;
-  }
-  rowEl?.classList.remove("disabled");
-  const zoneTxt = String(best.cluster.name || "").trim();
-  setLiveText(metaEl, `${isSure ? "Sicuro" : "Non sicuro"}: CH ${best.ch} • Metin ${best.cluster.level}${zoneTxt ? " • " + zoneTxt : ""}`);
-  setLiveText(smallEl, `Spawn ~ ${fmtTime(best.spawnMs)}`);
-  setLiveText(etaEl, `ETA ~ ${fmtCountdown(nowMs() + best.etaMs)}`);
-}
-
-function updateLiveBar(){
-  if (!liveBarEl) return;
-  const anyTimers = Object.values(activeProfile().data.timersByCh || {}).some(chObj => Object.keys(chObj||{}).length>0);
-  const show = !!openCardFor || anyTimers;
-  liveBarEl.classList.toggle("show", show);
-
-  const ch = Number(chSelect.value || 1);
-  const cluster = openCardFor ? clusterById(openCardFor) : null;
-
-  if (!cluster){
-    setLiveText(liveTitleEl, "Seleziona un Metin");
-    setLiveText(liveSubEl, "Tocca un puntino/zona sulla mappa");
-    setLiveText(liveNoteEl, anyTimers ? "Consigli aggiornati in base ai timer attivi." : "Tip: rompi un Metin e premi Rotto per avviare il timer.");
-  } else {
-    const zoneTxt = String(cluster.name || "").trim();
-    setLiveText(liveTitleEl, `CH ${ch} • Metin ${cluster.level}${zoneTxt ? " • " + zoneTxt : ""}`);
-    const rd = clusterReadiness(ch, cluster);
-    let sub = "";
-    if (!rd.any) sub = "Nessun timer su questo Metin (usa i pulsanti sotto per iniziare)";
-    else if (rd.ready > 0) sub = `IN FINESTRA • slot pronti: ${rd.ready}/${cluster.slots || 1}`;
-    else sub = `Prossimo ~ ${fmtTime(rd.nextLikelyMs ?? rd.nextMinMs)} • ${rd.conf === "sure" ? "sicuro" : "non sicuro"}`;
-    setLiveText(liveSubEl, sub);
-    setLiveText(liveNoteEl, "Azioni: Rotto / Già rotto / Non trovato / Escludi / Clear");
-    setLiveText(liveExcludeBtn, isExcluded(ch, cluster.id) ? "Includi" : "Escludi");
-  }
-
-  updateRecoRow(bestTargetByConf("sure"), "sure");
-  updateRecoRow(bestTargetByConf("unsure"), "unsure");
-}
-
-function liveAct(kind){
-  const ch = Number(chSelect.value || 1);
-  if (!openCardFor) return;
-  const cluster = clusterById(openCardFor);
-  if (!cluster) return;
-  const s = activeProfile().settings;
-
-  if (kind === "break"){ addTimer(ch, cluster, { conf:"sure", skewMs:0 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
-  if (kind === "already"){ const sec = Number(s.alreadyBrokenSec || 0); addTimer(ch, cluster, { conf:"sure", skewMs: sec*1000 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
-  if (kind === "notfound"){ const a = Number(s.nonFoundMinSec || 0); const b = Number(s.nonFoundMaxSec || 0); const mid = (a+b)/2; addTimer(ch, cluster, { conf:"unsure", skewMs: mid*1000 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
-  if (kind === "exclude"){ toggleExcluded(ch, cluster.id); renderAll(); return; }
-  if (kind === "clear"){ setTimersArr(ch, cluster.id, []); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
-}
 // Best recommendation across current CH
 function recommendedClusterId(ch){
   if (!activeProfile().settings.suggest) return null;
@@ -767,6 +405,101 @@ function recommendedCh(){
   return best;
 }
 
+
+function etaMsAtSpawn(fromPos, cluster, spawnMs){
+  const t = nowMs();
+  const travelMs = travelSeconds(fromPos, cluster)*1000;
+  const breakMs = (activeProfile().settings.useBreakTime ? breakTimeForLevel(cluster.level)*1000 : 0);
+  const remMs = spawnMs - t;
+  return Math.max(remMs, travelMs) + breakMs;
+}
+
+function bestTargetByConf(confWanted){
+  if (!activeProfile().settings.suggest) return null;
+  const fromPos = activeProfile().data.playerPos;
+  let best=null;
+  // Search all CH, using window "likely" time when available
+  for (let ch=1; ch<=CHANNELS; ch++){
+    for (const c of visibleClusters()){
+      if (isExcluded(ch, c.id)) continue;
+      const rd = clusterReadiness(ch, c);
+      if (!rd.any) continue;
+      if (confWanted && rd.conf !== confWanted) continue;
+
+      const spawnMs = rd.nextLikelyMs ?? rd.nextMinMs ?? computeNextSpawnMs(ch, c.id);
+      if (spawnMs == null) continue;
+
+      const etaMs = etaMsAtSpawn(fromPos, c, spawnMs);
+      if (!best || etaMs < best.etaMs){
+        best = { ch, cluster: c, spawnMs, etaMs, conf: rd.conf };
+      }
+    }
+  }
+  return best;
+}
+
+function renderRecoRow(kind, best){
+  if (kind === "sure"){
+    if (!liveRecoSureEl) return;
+    if (!best){
+      liveRecoSureEl.classList.add("disabled");
+      liveRecoSureMetaEl.textContent = "Sicuro: —";
+      liveRecoSureEtaEl.textContent = "";
+      return;
+    }
+    liveRecoSureEl.classList.remove("disabled");
+    liveRecoSureMetaEl.textContent = `Sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${best.cluster.name}`;
+    liveRecoSureEtaEl.textContent = `ETA ~ ${fmtCountdown(best.etaMs)}`;
+  } else {
+    if (!liveRecoUnsureEl) return;
+    if (!best){
+      liveRecoUnsureEl.classList.add("disabled");
+      liveRecoUnsureMetaEl.textContent = "Non sicuro: —";
+      liveRecoUnsureEtaEl.textContent = "";
+      return;
+    }
+    liveRecoUnsureEl.classList.remove("disabled");
+    liveRecoUnsureMetaEl.textContent = `Non sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${best.cluster.name}`;
+    liveRecoUnsureEtaEl.textContent = `ETA ~ ${fmtCountdown(best.etaMs)}`;
+  }
+}
+
+function updateRecoUI(){
+  if (!liveRecoWrapEl) return;
+  if (!activeProfile().settings.suggest){
+    liveRecoWrapEl.style.display = "none";
+    return;
+  }
+  liveRecoWrapEl.style.display = "";
+  const bestSure = bestTargetByConf("sure");
+  const bestUnsure = bestTargetByConf("unsure");
+  renderRecoRow("sure", bestSure);
+  renderRecoRow("unsure", bestUnsure);
+
+  // bind clicks once
+  if (liveRecoSureEl && !liveRecoSureEl.dataset.bound){
+    liveRecoSureEl.dataset.bound="1";
+    liveRecoSureEl.addEventListener("click", ()=>{
+      const b = bestTargetByConf("sure");
+      if (!b) return;
+      chSelect.value = String(b.ch);
+      selectedId = b.cluster.id;
+      openCardFor = null; openCardIsPicker=false;
+      renderAll();
+    });
+  }
+  if (liveRecoUnsureEl && !liveRecoUnsureEl.dataset.bound){
+    liveRecoUnsureEl.dataset.bound="1";
+    liveRecoUnsureEl.addEventListener("click", ()=>{
+      const b = bestTargetByConf("unsure");
+      if (!b) return;
+      chSelect.value = String(b.ch);
+      selectedId = b.cluster.id;
+      openCardFor = null; openCardIsPicker=false;
+      renderAll();
+    });
+  }
+}
 function routeOrder(ch){
   if (!activeProfile().settings.route) return {};
   let currentPos={...activeProfile().data.playerPos};
@@ -799,7 +532,9 @@ function routeOrder(ch){
 
 // === visibility / overlap handling ===
 function visibleClusters(){
-  const f = activeProfile().settings.filter;
+  const s = activeProfile().settings;
+  if (s.metinView === "simple") return CLUSTERS.filter(c=>c.level===30);
+  const f = s.filter;
   if (f === "all") return CLUSTERS;
   if (String(f).includes("+")){
     const parts = String(f).split("+").map(x=>Number(x.trim())).filter(Boolean);
@@ -834,7 +569,20 @@ function computeOffsetsPx(clusters){
 let openCardFor = null; // clusterId
 let openCardIsPicker = false;
 
-function openSheet(show){ sheetBackdrop.style.display = show ? "flex" : "none"; if (show) updateMeasureInfo(); }
+function selectedCluster(){
+  const clusters = visibleClusters();
+  if (typeof selectedId !== 'undefined' && selectedId && !clusters.find(x=>x.id===selectedId)) selectedId = null;
+  if (!selectedId) return null;
+  return clusters.find(c=>c.id===selectedId) || null;
+}
+
+function openSheet(show){
+  sheetBackdrop.style.display = show ? "flex" : "none";
+  if (show) updateMeasureInfo();
+  // Avoid covering settings
+  if (show) setLiveBarVisible(false);
+  else if (!(activeProfile().settings.liveBarHidden)) setLiveBarVisible(true);
+}
 function refreshProfileSelect(){
   profileSelect.innerHTML="";
   for (const [id, prof] of Object.entries(state.profiles)){
@@ -939,6 +687,10 @@ function syncSettingsFromUI(){
   p.settings.route=!!togRoute.checked;
   p.settings.spawnGlow=!!togSpawnGlow.checked;
   p.settings.detailed=!!togDetailed.checked;
+  if (uiModeEl) p.settings.uiMode = uiModeEl.value;
+  if (p.settings.uiMode === "bar"){ openCardFor=null; openCardIsPicker=false; }
+  if (metinViewEl) p.settings.metinView = metinViewEl.value;
+  if (autoClearLateEl) p.settings.autoClearLate = !!autoClearLateEl.checked;
 
   p.settings.break25=Math.max(0, Number(break25El.value) || 0);
   p.settings.break30=Math.max(0, Number(break30El.value) || 0);
@@ -949,6 +701,8 @@ function syncSettingsFromUI(){
 
   saveState();
   renderAll();
+  updateLiveBar();
+  startTicker();
 }
 
 function renderZones(clusters){
@@ -967,6 +721,7 @@ function renderZones(clusters){
   for (const c of clusters){
     const z=document.createElement("div");
     z.className = "zone " + (c.level===25 ? "z25" : c.level===30 ? "z30" : "z35");
+    if (typeof selectedId !== "undefined" && selectedId && c.id===selectedId) z.classList.add("selected");
     z.dataset.id = c.id;
     z.dataset.key = keyOf(c);
     z.style.left = `${c.x}%`;
@@ -977,13 +732,27 @@ function renderZones(clusters){
 
     z.addEventListener("click",(e)=>{
       e.stopPropagation();
+      const s = activeProfile().settings;
       const grp = groups.get(z.dataset.key);
       if (grp && grp.length>1){
-        openCardFor = z.dataset.key;
-        openCardIsPicker = true;
-      }else{
-        openCardFor = c.id;
-        openCardIsPicker = false;
+        if (s.uiMode === "popup"){
+          openCardFor = z.dataset.key;
+          openCardIsPicker = true;
+          selectedId = grp[0].id;
+        } else {
+          cycleSelectInGroup(grp);
+          openCardFor = null;
+          openCardIsPicker = false;
+        }
+      } else {
+        selectedId = c.id;
+        if (s.uiMode === "popup"){
+          openCardFor = c.id;
+          openCardIsPicker = false;
+        } else {
+          openCardFor = null;
+          openCardIsPicker = false;
+        }
       }
       renderAll();
     });
@@ -1103,7 +872,6 @@ card.addEventListener("click", (e)=>{
     if (act === "clearSlot"){ /* handled below */ }
     saveState();
     renderAll();
-    maybeRealtimeAfterChange();
   });
 
   // clear specific slot
@@ -1147,7 +915,7 @@ function buildPickerCard(ch, clusters, basePos, offsets){
   `;
   card.addEventListener("click",(e)=>{
     const closeBtn=e.target.closest("button[data-act='close']");
-    if (closeBtn){ openCardFor=null; openCardIsPicker=false; renderAll(); return; }
+    if (closeBtn){ openCardFor=null; openCardIsPicker=false; selectedId=null; renderAll(); return; }
     const row=e.target.closest(".slotRow[data-id]");
     if (!row) return;
     openCardFor=row.dataset.id;
@@ -1169,12 +937,51 @@ function addTimerLabel(ch, cluster, offset){
   return label;
 }
 
+
+
+function setLiveBarVisible(show){
+  if (!liveBarEl) return;
+  if (show){
+    liveBarEl.style.display = "";
+    if (liveShowBtn) liveShowBtn.style.display = "none";
+  } else {
+    liveBarEl.style.display = "none";
+    if (liveShowBtn) liveShowBtn.style.display = "";
+  }
+  // update CSS var for padding
+  try{
+    const h = show ? liveBarEl.getBoundingClientRect().height : 0;
+    document.documentElement.style.setProperty("--livebarH", `${Math.max(0, Math.round(h))}px`);
+  }catch(_){}
+}
+function updateLiveBar(){
+  updateRecoUI();
+  if (!liveBarEl) return;
+  const ch = Number(chSelect.value);
+  const c = selectedCluster();
+  if (!c){
+    liveTitleEl.textContent = "Selezione: —";
+    liveSubEl.textContent = "Tocca un puntino o una zona";
+    [liveBreakBtn, liveBrokenBtn, liveNotFoundBtn, liveExcludeBtn, liveClearBtn].forEach(b=> b && (b.disabled=true));
+    return;
+  }
+  const next = computeNextSpawnMs(ch, c.id);
+  const status = (next==null) ? "—" : ("Spawn ~ " + fmtTime(next) + " • tra " + fmtCountdown(next - nowMs()));
+  liveTitleEl.textContent = `CH ${ch} • Metin ${c.level} • ${c.name}`;
+  liveSubEl.textContent = status;
+  [liveBreakBtn, liveBrokenBtn, liveNotFoundBtn, liveExcludeBtn, liveClearBtn].forEach(b=> b && (b.disabled=false));
+  // exclude button hint
+  if (isExcluded(ch, c.id)) liveExcludeBtn.textContent = "Include giro";
+  else liveExcludeBtn.textContent = "Escludi dal giro";
+}
+
 function renderAll(){
   // clear
-  mapWrap.querySelectorAll(".marker, .card").forEach(n=>n.remove());
+  mapWrap.querySelectorAll(".marker, .card, .tlabel").forEach(n=>n.remove());
 
   const ch = Number(chSelect.value);
   const clusters = visibleClusters();
+  if (typeof selectedId !== 'undefined' && selectedId && !clusters.find(x=>x.id===selectedId)) selectedId = null;
   const offsets = computeOffsetsPx(clusters);
 
   // timer labels (always)
@@ -1247,6 +1054,7 @@ function renderAll(){
 
       if (activeProfile().settings.spawnGlow && next!=null && rem<=0) mk.classList.add("spawnGlow");
       if (recommendId && c.id===recommendId) mk.classList.add("recommended");
+      if (typeof selectedId !== 'undefined' && selectedId && c.id===selectedId) mk.classList.add("selected");
       if (isExcluded(ch, c.id)) mk.style.opacity = "0.35";
 
       const num=route[c.id];
@@ -1256,6 +1064,14 @@ function renderAll(){
         n.textContent=String(num);
         mk.appendChild(n);
       }
+
+      function cycleSelectInGroup(grp){
+  if (!grp || !grp.length) return null;
+  const idx = grp.findIndex(x=>x.id===selectedId);
+  const next = (idx<0?0:(idx+1)%grp.length);
+  selectedId = grp[next].id;
+  return selectedId;
+}
 
       // group count badge on first item only (to reduce clutter)
       const grp = groups.get(keyOf(c));
@@ -1268,13 +1084,33 @@ function renderAll(){
 
       mk.addEventListener("click",(e)=>{
         e.stopPropagation();
+        const s = activeProfile().settings;
         const grp = groups.get(keyOf(c));
         if (grp && grp.length>1){
-          // open picker card at base pos
-          openCardFor = keyOf(c); // pseudo id
-          openCardIsPicker = true;
-        } else {
+          const s = activeProfile().settings;
+          if (s.uiMode === "popup"){
+            // overlap picker (small card)
+            openCardFor = keyOf(c);
+            openCardIsPicker = true;
+            // also preselect first
+            selectedId = grp[0].id;
+          } else {
+            // bar mode: cycle selection, no popup
+            cycleSelectInGroup(grp);
+            openCardFor = null;
+            openCardIsPicker = false;
+          }
+          renderAll();
+          return;
+        }
+        // normal
+        selectedId = c.id;
+        if (s.uiMode === "popup"){
           openCardFor = (openCardFor === c.id && !openCardIsPicker) ? null : c.id;
+          openCardIsPicker = false;
+        } else {
+          // bar mode: no popup
+          openCardFor = null;
           openCardIsPicker = false;
         }
         renderAll();
@@ -1305,6 +1141,8 @@ function renderAll(){
   }
 
   // CH suggestion toast (simple)
+  updateLiveBar();
+
   const oldToast=document.getElementById("chToast");
   if (oldToast) oldToast.remove();
   if (bestCh && bestCh.ch !== ch && currentBest && (currentBest.eta - bestCh.eta) >= thresholdS*1000){
@@ -1340,6 +1178,7 @@ function renderAll(){
 function updateAllLabels(){
   const ch = Number(chSelect.value);
   const clusters = visibleClusters();
+  if (typeof selectedId !== 'undefined' && selectedId && !clusters.find(x=>x.id===selectedId)) selectedId = null;
   const byId = new Map(clusters.map(c=>[c.id,c]));
   const styleNow = activeProfile().settings.mapStyle ?? "markers";
 
@@ -1364,8 +1203,18 @@ function updateAllLabels(){
     if (info.conf === 'unsure') lab.classList.add('unsure'); else lab.classList.add('sure');
 
     if (info.ready > 0){
-      lab.textContent = `UP x${info.ready}`;
-      lab.classList.add('up');
+      // show remaining window time instead of 'UP'
+      const t = nowMs();
+      const arr = timersArr(ch, c.id);
+      const ends=[];
+      for (const slot of arr){
+        const st = slotWindowState(slot);
+        if (t >= st.minMs && t <= st.maxMs) ends.push(st.maxMs);
+      }
+      const endMin = ends.length ? Math.min(...ends) : null;
+      const left = endMin==null ? 0 : Math.max(0, endMin - t);
+      lab.textContent = `⟡ ${fmtCountdown(left)} x${info.ready}`;
+      lab.classList.add('window');
       return;
     }
 
@@ -1396,14 +1245,35 @@ function startTicker(){
     if (document.visibilityState === "hidden") return;
     const ch = Number(chSelect.value);
     const anyTimers = hasAnyTimersForCh(ch);
-    const needs = anyTimers || (!!openCardFor);
+    const needs = anyTimers || (!!openCardFor) || (!!selectedId);
     if (!needs) return;
     tick();
   }, 1000);
 }
 
 function tick(){
+  updateLiveBar();
   const ch = Number(chSelect.value);
+  // Auto-clear late slots
+  if (activeProfile().settings.autoClearLate){
+    const t = nowMs();
+    const clusters = visibleClusters();
+  if (typeof selectedId !== 'undefined' && selectedId && !clusters.find(x=>x.id===selectedId)) selectedId = null;
+    let changed=false;
+    for (const c of clusters){
+      const arr = timersArr(ch, c.id);
+      if (!arr.length) continue;
+      const kept = arr.filter(slot=>{
+        const st = slotWindowState(slot);
+        return t <= (st.maxMs + 5*60_000);
+      });
+      if (kept.length !== arr.length){
+        setTimersArr(ch, c.id, kept);
+        changed=true;
+      }
+    }
+    if (changed) saveState();
+  }
   if (!hasAnyTimersForCh(ch) && !openCardFor) return;
   updateAllLabels();
   // update main card countdowns
@@ -1439,6 +1309,7 @@ function tick(){
       });
     }
   });
+  updateLiveBar();
   requestAnimationFrame(tick);
 }
 
@@ -1584,7 +1455,7 @@ function clearMeasure(){
   profileManageBtn.addEventListener("click", manageProfiles);
 
   filterSelect.addEventListener("change", ()=>{ activeProfile().settings.filter=filterSelect.value; saveState(); renderAll(); });
-  chSelect.addEventListener("change", ()=>{ openCardFor=null; openCardIsPicker=false; renderAll(); });
+  chSelect.addEventListener("change", ()=>{ openCardFor=null; openCardIsPicker=false; renderAll(); updateLiveBar(); });
 
   settingsBtn.addEventListener("click", ()=> openSheet(true));
   closeSheetBtn.addEventListener("click", ()=> openSheet(false));
@@ -1592,10 +1463,11 @@ function clearMeasure(){
 
   resetChBtn.addEventListener("click", ()=>{
     const ch=Number(chSelect.value);
+    if (!confirm(`Sei sicuro di resettare questo CH? (CH ${ch})`)) return;
     activeProfile().data.timersByCh[ch]={};
     saveState();
     renderAll();
-    maybeRealtimeAfterChange();
+    updateLiveBar();
   });
 
   resetAllChBtn.addEventListener("click", ()=>{
@@ -1604,21 +1476,6 @@ function clearMeasure(){
     saveState();
     renderAll();
   });
-
-  // Realtime toggle
-  if (rtRetryEl){
-    rtRetryEl.addEventListener("click", ()=>{
-      if (rtEnableEl) rtEnableEl.checked = true;
-      connectRealtime();
-    });
-  }
-  if (rtEnableEl){
-    rtEnableEl.checked = (localStorage.getItem(RT_KEY) === "1");
-    rtEnableEl.addEventListener("change", ()=>{
-      if (rtEnableEl.checked) connectRealtime(); else disconnectRealtime();
-    });
-    if (rtEnableEl.checked) connectRealtime();
-  }
 
   // Map click: (1) close popup, (2) set position
   mapWrap.addEventListener("click",(e)=>{
@@ -1640,9 +1497,10 @@ function clearMeasure(){
   [
     minMinEl, modeMinEl, maxMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
     mapStyleEl, togSuggest, togRoute, togSpawnGlow, autoPosLastEl, chSuggestThresholdEl, togDetailed,
-    break25El, break30El, break35El, togBreakTime,
+    uiModeEl, metinViewEl, autoClearLateEl,
+    break25El, break30El, break35El, breakAvgEl, togBreakTime,
     secPerPctEl
-  ].forEach(el=> el.addEventListener("change", syncSettingsFromUI));
+  ].forEach(el=> el && el.addEventListener("change", syncSettingsFromUI));
 
   exportBtn.addEventListener("click", doExport);
   importBtn.addEventListener("click", ()=> importFile.click());
@@ -1657,10 +1515,61 @@ function clearMeasure(){
   measureStartBtn.addEventListener("click", startMeasure);
   measureStopBtn.addEventListener("click", stopMeasure);
   measureClearBtn.addEventListener("click", clearMeasure);
-
-  // PWA
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  // PWA disabled (no service worker)
+  // Live bar actions
+  if (liveHideBtn) liveHideBtn.addEventListener("click", ()=>{
+    activeProfile().settings.liveBarHidden = true;
+    saveState();
+    setLiveBarVisible(false);
+  });
+  if (liveShowBtn) liveShowBtn.addEventListener("click", ()=>{
+    activeProfile().settings.liveBarHidden = false;
+    saveState();
+    setLiveBarVisible(true);
+    updateLiveBar();
+  });
+  if (liveOpenCardBtn) liveOpenCardBtn.addEventListener("click", ()=>{
+    const c = selectedCluster();
+    if (!c) return;
+    openCardFor = c.id;
+    openCardIsPicker = false;
+    renderAll();
+  });
+  function withSel(fn){
+    const ch = Number(chSelect.value);
+    const c = selectedCluster();
+    if (!c) return;
+    fn(ch, c);
+    saveState();
+    renderAll();
+  }
+  if (liveBreakBtn) liveBreakBtn.addEventListener("click", ()=> withSel((ch,c)=>{
+    addTimer(ch, c, {skewMs:0, conf:"sure", forceRollMin: activeProfile().settings.modeMin});
+    if (!!(activeProfile().settings.autoPosLast ?? true)) activeProfile().data.playerPos = {x:c.x,y:c.y};
+  }));
+  if (liveBrokenBtn) liveBrokenBtn.addEventListener("click", ()=> withSel((ch,c)=>{
+    const brokenSkew = Math.max(0, Number(activeProfile().settings.alreadyBrokenSec || 0))*1000;
+    addTimer(ch, c, {skewMs: brokenSkew, conf:"unsure", forceRollMin: activeProfile().settings.modeMin});
+    if (!!(activeProfile().settings.autoPosLast ?? true)) activeProfile().data.playerPos = {x:c.x,y:c.y};
+  }));
+  if (liveNotFoundBtn) liveNotFoundBtn.addEventListener("click", ()=> withSel((ch,c)=>{
+    const s = activeProfile().settings;
+    const a = Math.max(0, Number(s.nonFoundMinSec ?? 60));
+    const b = Math.max(a, Number(s.nonFoundMaxSec ?? 240));
+    const skew = (a === b) ? a*1000 : (a + Math.random()*(b-a))*1000;
+    addTimer(ch, c, {skewMs: skew, conf:"unsure", forceRollMin: activeProfile().settings.modeMin});
+    if (!!(activeProfile().settings.autoPosLast ?? true)) activeProfile().data.playerPos = {x:c.x,y:c.y};
+  }));
+  if (liveExcludeBtn) liveExcludeBtn.addEventListener("click", ()=> withSel((ch,c)=>{
+    toggleExcluded(ch, c.id);
+  }));
+  if (liveClearBtn) liveClearBtn.addEventListener("click", ()=> withSel((ch,c)=>{
+    clearTimers(ch, c.id);
+  }));
 
   renderAll();
-  requestAnimationFrame(tick);
+  setLiveBarVisible(!(activeProfile().settings.liveBarHidden));
+  updateLiveBar();
+  startTicker();
+  requestAnimationFrame(()=>tick());
 })();

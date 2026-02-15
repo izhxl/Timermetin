@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Reset cache • Timer Metin</title>
+  <style>
+    body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding:16px; background:#0b0e13; color:#e8eefc; }
+    .card{ max-width:720px; margin:0 auto; padding:16px; border-radius:14px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);}
+    .muted{ opacity:.8; font-size:13px; }
+    .log{ margin-top:12px; padding:10px; background:rgba(0,0,0,.35); border-radius:12px; white-space:pre-wrap; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="margin:0 0 8px 0;">Reset cache / PWA</h2>
+    <div class="muted">Questa pagina elimina Service Worker e cache vecchie (se l'app risultava “morta”). Poi ti rimanda alla home.</div>
+    <div class="log" id="log">Avvio reset…</div>
+  </div>
+
+<script>
+(async () => {
+  const logEl = document.getElementById('log');
+  const log = (s)=> logEl.textContent += "\n" + s;
+
+  try{
+    // unregister SW
+    if ('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      log(`SW trovati: ${regs.length}`);
+      await Promise.all(regs.map(r => r.unregister().catch(()=>false)));
+      log('SW: unregister OK');
+    } else {
+      log('SW: non supportato');
+    }
+
+    // clear caches
+    if (window.caches && caches.keys){
+      const keys = await caches.keys();
+      log(`Caches: ${keys.length}`);
+      await Promise.all(keys.map(k => caches.delete(k)));
+      log('Caches: delete OK');
+    } else {
+      log('Caches: non supportato');
+    }
+
+    // clear storage
+    try{ localStorage.clear(); log('localStorage: clear OK'); }catch(e){ log('localStorage: no'); }
+    try{ sessionStorage.clear(); log('sessionStorage: clear OK'); }catch(e){ log('sessionStorage: no'); }
+
+    log('Fatto. Redirect…');
+    setTimeout(()=> location.replace('./index.html?reset=' + Date.now()), 600);
+  }catch(e){
+    log('Errore: ' + (e.message || e));
+  }
+})();
+</script>
+</body>
+</html>
