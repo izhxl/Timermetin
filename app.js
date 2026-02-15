@@ -80,7 +80,7 @@ async function ensureFirebase(){
   setRtStatus("Carico SDK...");
   if (rt.ready) return;
   const cfg = window.FIREBASE_CONFIG;
-  if (!cfg) throw new Error("firebase-config-missing");
+  if (!cfg) throw Object.assign(new Error("firebase-config-missing"), { code: "config-missing" });
 
   const [{ initializeApp }, { getAuth, signInAnonymously, onAuthStateChanged }, { getFirestore, doc, onSnapshot, setDoc, serverTimestamp }] =
     await Promise.all([
@@ -170,7 +170,10 @@ function applyRoomToLocal(roomData){
 
 async function connectRealtime(){
   // Prevent parallel connects
-  if (rt.connecting) return;
+  if (rt.connecting){
+    // if a previous attempt got stuck, allow a new connect when toggled again
+    if (!rt.enabled) rt.connecting = false; else return;
+  }
   rt.connecting = true;
   const token = ++rt.connectToken;
 
@@ -198,6 +201,8 @@ async function connectRealtime(){
     if (!rt.enabled || token !== rt.connectToken) break;
     try{
       await ensureFirebase();
+      // Let auth state settle (helps on iOS/fast toggles)
+      await rtSleep(200);
       okInit = true;
       break;
     }catch(e){
@@ -218,7 +223,7 @@ async function connectRealtime(){
     if (!rt.enabled || token !== rt.connectToken) break;
     try{
       const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
-      if (rt.unsub) rt.unsub();
+      if (rt.unsub) { rt.unsub(); rt.unsub = null; }
 
       rt.unsub = onSnapshot(rt.docRef, (snap)=>{
         if (!snap.exists()){
@@ -258,8 +263,8 @@ function disconnectRealtime(function disconnectRealtime(){
   localStorage.removeItem(RT_KEY);
   if (rt.unsub) { rt.unsub(); rt.unsub = null; }
   setRtStatus("OFF");
-  setRtUid(null);
-  switchBackFromRoomProfile();
+  // Soft disconnect: keep Firebase app/auth loaded so ON works reliably.
+  // Keep you on the room profile to avoid switching back/forth causing weird states.
   renderAll();
 }
 
