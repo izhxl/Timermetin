@@ -28,6 +28,12 @@ function setRtStatus(txt){
   if (!rtStatusEl) return;
   rtStatusEl.textContent = txt;
 }
+function rtErrText(e){
+  if (!e) return "errore";
+  const code = e.code || e.name || "";
+  const msg = e.message || String(e);
+  return (code ? (code + ": ") : "") + msg;
+}
 function setRtUid(uid){
   if (!rtUidEl || !rtUserLineEl) return;
   if (uid){
@@ -67,6 +73,7 @@ function switchBackFromRoomProfile(){
 }
 
 async function ensureFirebase(){
+  setRtStatus("Carico SDK...");
   if (rt.ready) return;
   const cfg = window.FIREBASE_CONFIG;
   if (!cfg) throw new Error("firebase-config-missing");
@@ -84,6 +91,7 @@ async function ensureFirebase(){
     rt.db = getFirestore(rt.app);
     rt.docRef = doc(rt.db, "rooms", ROOM_ID);
 
+    setRtStatus("Login anonimo...");
     await signInAnonymously(rt.auth);
     onAuthStateChanged(rt.auth, (user)=>{
       rt.uid = user ? user.uid : null;
@@ -122,7 +130,7 @@ async function writeRoomState(){
     setRtStatus("ON • sync");
   }catch(e){
     console.error(e);
-    setRtStatus("Errore write");
+    setRtStatus("Write: " + rtErrText(e));
   }
 }
 
@@ -158,6 +166,11 @@ async function connectRealtime(){
   rt.enabled = true;
   localStorage.setItem(RT_KEY, "1");
   setRtStatus("Connessione...");
+  const rtConnectTimeout = setTimeout(()=>{
+    if (rt.enabled && rtStatusEl && rtStatusEl.textContent.startsWith("Connessione")){
+      setRtStatus("Timeout: controlla Auth domains / Rules");
+    }
+  }, 8000);
   switchToRoomProfile();
 
   try{
@@ -167,7 +180,7 @@ async function connectRealtime(){
     if (String(e).includes("firebase-config-missing")){
       setRtStatus("Config mancante");
     }else{
-      setRtStatus("Errore init");
+      setRtStatus("Init: " + rtErrText(e));
     }
     rt.enabled = false;
     localStorage.removeItem(RT_KEY);
@@ -184,17 +197,19 @@ async function connectRealtime(){
         return;
       }
       applyRoomToLocal(snap.data());
-      setRtStatus("ON");
+      clearTimeout(rtConnectTimeout);
+      clearTimeout(rtConnectTimeout);
+    setRtStatus("ON");
     }, (err)=>{
       console.error(err);
-      setRtStatus("Errore listen");
+      setRtStatus("Listen: " + rtErrText(err));
     });
 
     writeRoomState();
     setRtStatus("ON");
   }catch(e){
     console.error(e);
-    setRtStatus("Errore listen");
+    setRtStatus("Listen: " + rtErrText(err));
   }
 }
 
