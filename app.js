@@ -53,6 +53,7 @@ let rt = {
   unsub: null,
   applyingRemote: false,
   lastLocalWriteMs: 0,
+  syncedOnce: false,
 };
 
 function setRtStatus(txt){
@@ -149,9 +150,11 @@ function roomPayloadFromLocal(){
   };
 }
 
-async function writeRoomState(){
+async function writeRoomState(opts={}){
+  const seed = !!opts.seed;
   if (!rt.enabled || !rt.ready || !rt.docRef) return;
   if (rt.applyingRemote) return;
+  if (!seed && !rt.syncedOnce) return;
   try{
     const { setDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
     rt.lastLocalWriteMs = Date.now();
@@ -195,14 +198,17 @@ function applyRoomToLocal(roomData){
 
 async function connectRealtime(){
   rt.enabled = true;
+  rt.syncedOnce = false;
   localStorage.setItem(RT_KEY, "1");
   setRtStatus("Connessione...");
   if (rt.unsub){ try{ rt.unsub(); }catch{} rt.unsub=null; }
+
   const rtConnectTimeout = setTimeout(()=>{
     if (rt.enabled && rtStatusEl && rtStatusEl.textContent.startsWith("Connessione")){
       setRtStatus("Timeout: controlla Auth domains / Rules");
     }
-  }, 8000);
+  }, 12000);
+
   switchToRoomProfile();
 
   try{
@@ -223,26 +229,30 @@ async function connectRealtime(){
 
   try{
     const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
-    if (rt.unsub) rt.unsub();
-    rt.unsub = onSnapshot(rt.docRef, (snap)=>{
+    if (rt.unsub){ try{ rt.unsub(); }catch{} rt.unsub=null; }
+
+    rt.unsub = onSnapshot(rt.docRef, async (snap)=>{
+      if (!rt.enabled) return;
+
       if (!snap.exists()){
-        writeRoomState();
+        // Seed only if the room doc does not exist yet.
+        await writeRoomState({seed:true});
         return;
       }
+
       applyRoomToLocal(snap.data());
+      rt.syncedOnce = true;
       clearTimeout(rtConnectTimeout);
-      clearTimeout(rtConnectTimeout);
-    setRtStatus("ON");
+      setRtStatus("ON");
     }, (err)=>{
       console.error(err);
       setRtStatus("Listen: " + rtErrText(err));
     });
 
-    writeRoomState();
-    setRtStatus("ON");
+    // IMPORTANT: do NOT write here (prevents overwriting the room with stale local state on reconnect).
   }catch(e){
     console.error(e);
-    setRtStatus("Listen: " + rtErrText(err));
+    setRtStatus("Listen: " + rtErrText(e));
   }
 }
 
