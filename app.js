@@ -46,6 +46,7 @@ const profileManageBtn = document.getElementById("profileManageBtn");
 
 const settingsBtn = document.getElementById("settingsBtn");
 const resetChBtn = document.getElementById("resetChBtn");
+const resetAllChBtn = document.getElementById("resetAllChBtn");
 
 const sheetBackdrop = document.getElementById("sheetBackdrop");
 const closeSheetBtn = document.getElementById("closeSheetBtn");
@@ -114,31 +115,43 @@ function slotWindowState(slot){
   return { minMs, maxMs, likelyMs, t };
 }
 function slotStatusText(slot){
-  const {minMs, maxMs, t} = slotWindowState(slot);
+  const {minMs, maxMs, likelyMs, t} = slotWindowState(slot);
+
+  // Before min: show PROBABILE (likely)
   if (t < minMs){
-    return { text: fmtCountdown(minMs - t), cls: "pre" };
+    return { text: `~${fmtCountdown(likelyMs - t)}`, cls: "pre" };
   }
+
+  // Within window: show countdown to likely (if not passed) else remaining window
   if (t <= maxMs){
-    const left = maxMs - t;
-    return { text: `FINESTRA ${fmtCountdown(left)}`, cls: "window" };
+    if (t <= likelyMs){
+      return { text: `~${fmtCountdown(likelyMs - t)}`, cls: "window" };
+    }
+    return { text: `FINESTRA ${fmtCountdown(maxMs - t)}`, cls: "window" };
   }
+
+  // Late
   return { text: `RITARDO +${fmtCountdown(t - maxMs)}`, cls: "late" };
 }
+
 function clusterReadiness(ch, cluster){
   const arr = timersArr(ch, cluster.id);
-  if (!arr.length) return { ready: 0, nextMinMs: null, conf: null, any: false };
+  if (!arr.length) return { ready: 0, nextMinMs: null, nextLikelyMs: null, conf: null, any: false };
   const t = nowMs();
   let ready=0;
   let nextMinMs=null;
+  let nextLikelyMs=null;
   let conf="sure";
   for (const slot of arr){
-    const {minMs, maxMs} = slotWindowState(slot);
+    const {minMs, maxMs, likelyMs} = slotWindowState(slot);
     if (t >= minMs && t <= maxMs) ready++;
     if (t < minMs) nextMinMs = (nextMinMs==null) ? minMs : Math.min(nextMinMs, minMs);
+    if (t < likelyMs) nextLikelyMs = (nextLikelyMs==null) ? likelyMs : Math.min(nextLikelyMs, likelyMs);
     if ((slot.conf ?? "sure") !== "sure") conf = "unsure";
   }
-  return { ready, nextMinMs, conf, any: true };
+  return { ready, nextMinMs, nextLikelyMs, conf, any: true };
 }
+
 
 function randTriangular(min, mode, max){
   const u=Math.random();
@@ -621,6 +634,7 @@ function buildClusterCard(ch, cluster, offset={ox:0,oy:0}){
     <div class="row">
       <div class="title">${escapeHtml(cluster.name)}</div>
       <div class="badges">
+        <span class="exdot ${isExcluded(ch, cluster.id) ? "off" : "on"}"></span>
         <span class="badge">Lv ${cluster.level}</span>
         <span class="badge">CH ${ch}</span>
       </div>
@@ -813,6 +827,7 @@ function renderAll(){
 
       if (activeProfile().settings.spawnGlow && next!=null && rem<=0) mk.classList.add("spawnGlow");
       if (recommendId && c.id===recommendId) mk.classList.add("recommended");
+      if (isExcluded(ch, c.id)) mk.style.opacity = "0.35";
 
       const num=route[c.id];
       if (num){
@@ -906,9 +921,22 @@ function updateAllLabels(){
   const ch = Number(chSelect.value);
   const clusters = visibleClusters();
   const byId = new Map(clusters.map(c=>[c.id,c]));
+  const styleNow = activeProfile().settings.mapStyle ?? "markers";
+
   document.querySelectorAll('.tlabel').forEach(lab=>{
     const id = lab.dataset.id;
     const c = byId.get(id);
+
+    // In "zones" view show label only when that zone is selected (avoid black dot clutter)
+    if (styleNow === "zones"){
+      const show = (!openCardIsPicker && openCardFor === id);
+      if (!show){
+        lab.textContent='';
+        lab.classList.remove('sure','unsure','up','window','late');
+        return;
+      }
+    }
+
     lab.classList.remove('sure','unsure','up','window','late');
     if (!c){ lab.textContent=''; return; }
     const info = clusterReadiness(ch, c);
@@ -920,21 +948,23 @@ function updateAllLabels(){
       lab.classList.add('up');
       return;
     }
-    if (info.nextMinMs != null){
-      lab.textContent = fmtCountdown(info.nextMinMs - nowMs());
+
+    // Show most probable (likely)
+    if (info.nextLikelyMs != null){
+      lab.textContent = `~${fmtCountdown(info.nextLikelyMs - nowMs())}`;
       return;
     }
-    // all late: show minimum overdue
-    const arr = timersArr(ch, c.id);
-    let best=null;
-    for (const sl of arr){
-      const st = slotStatusText(sl);
-      if (!best || (st.cls==='late' && best.cls!=='late')) best=st;
-    }
-    lab.textContent = best ? best.text : '—';
-    if (best && best.cls) lab.classList.add(best.cls);
+
+    // Otherwise show per-slot status (window/late)
+    const arr = timersArr(ch, c.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs);
+    const first = arr[0] || null;
+    if (!first){ lab.textContent=''; return; }
+    const st = slotStatusText(first);
+    lab.textContent = st.text;
+    if (st.cls) lab.classList.add(st.cls);
   });
 }
+
 
 function tick(){
   const ch = Number(chSelect.value);
@@ -1126,6 +1156,13 @@ function clearMeasure(){
   resetChBtn.addEventListener("click", ()=>{
     const ch=Number(chSelect.value);
     activeProfile().data.timersByCh[ch]={};
+    saveState();
+    renderAll();
+  });
+
+  resetAllChBtn.addEventListener("click", ()=>{
+    if (!confirm("Reset timer su TUTTI i CH del profilo attuale?")) return;
+    for (let c=1; c<=CHANNELS; c++) activeProfile().data.timersByCh[c] = {};
     saveState();
     renderAll();
   });

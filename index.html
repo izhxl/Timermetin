@@ -39,7 +39,7 @@
     }
     .mapWrap img{ width:100%; height:auto; display:block; user-select:none; -webkit-user-drag:none; pointer-events:none; }
     .overlay{ position:absolute; inset:0; pointer-events:auto; }
-.tlabel{ position:absolute; transform: translate(-50%, calc(-100% - 10px)) translate(var(--ox,0px), var(--oy,0px));
+.tlabel{ position:absolute; transform: translate(-50%, calc(-100% - 18px)) translate(var(--ox,0px), var(--oy,0px));
   padding:2px 6px; border-radius:999px; font-size:11px; font-weight:800;
   background: rgba(0,0,0,.72); border:1px solid rgba(255,255,255,.14);
   box-shadow: 0 2px 10px rgba(0,0,0,.45); pointer-events:none; white-space:nowrap;
@@ -103,6 +103,10 @@
     .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
     .title{ font-weight:800; font-size:14px; }
     .badges{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.exdot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:6px; }
+.exdot.on{ background: rgba(120,255,160,.95); box-shadow: 0 0 0 3px rgba(120,255,160,.18); }
+.exdot.off{ background: rgba(255,120,120,.95); box-shadow: 0 0 0 3px rgba(255,120,120,.18); }
+
     .badge{ font-size:12px; padding:2px 7px; border-radius:999px; border:1px solid rgba(255,255,255,.16); opacity:.9; white-space:nowrap; }
     .time{ margin-top:6px; font-size:18px; font-variant-numeric: tabular-nums; }
     .sub{ margin-top:3px; font-size:12px; opacity:.86; line-height:1.25; }
@@ -187,6 +191,7 @@
 
   <button id="settingsBtn">Impostazioni</button>
   <button id="resetChBtn">Reset CH</button>
+  <button id="resetAllChBtn" title="Reset timer su tutti i CH">Reset tutti i CH</button>
 
   <div class="hint">Tap puntino/zona → azioni • Tap mappa vuota: chiude popup / imposta posizione • v0.0 revisioned</div>
 </header>
