@@ -162,7 +162,33 @@
       .hint{ width:100%; margin-left:0; }
       .card{ min-width: 240px; }
     }
-  </style>
+  
+
+    .liveBar{ position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
+      z-index: 60; background: rgba(16,16,18,.92); border: 1px solid rgba(255,255,255,.14);
+      border-radius: 18px; padding: 10px 10px; box-shadow: 0 12px 36px rgba(0,0,0,.45);
+      backdrop-filter: blur(10px); display: none; }
+    .liveBar.show{ display:block; }
+    .liveHdr{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .liveTitle{ font-weight:900; font-size:13px; line-height:1.2; }
+    .liveSub{ font-size:12px; opacity:.8; margin-top:2px; }
+    .liveClose{ width:34px; height:34px; border-radius:12px; background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.14); color:var(--text); font-weight:900; }
+    .liveReco{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .liveRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px;
+      border-radius:14px; border:1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); cursor:pointer; }
+    .liveRow.disabled{ cursor:default; opacity:.6; }
+    .liveRow .meta{ font-size:12px; font-weight:900; }
+    .liveRow .small{ font-size:12px; opacity:.85; }
+    .liveRow .eta{ font-size:12px; font-weight:900; font-variant-numeric: tabular-nums; }
+    .liveRow.sure{ border-color: rgba(120,255,160,.35); background: rgba(20,70,30,.22); }
+    .liveRow.unsure{ border-color: rgba(255,210,90,.35); background: rgba(70,55,18,.22); }
+    .liveBtns{ display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin-top:10px; }
+    .liveBtns button{ padding:8px 6px; border-radius:14px; border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06); color:var(--text); font-weight:800; font-size:12px; }
+    .liveNote{ margin-top:8px; font-size:12px; opacity:.78; }
+    @media (max-width: 520px){ .liveBtns{ grid-template-columns: repeat(2, 1fr); } }
+    </style>
 </head>
 <body>
 <div id="fatalErr" style="display:none; position:fixed; z-index:99999; left:8px; right:8px; top:8px; background:rgba(40,10,10,.92); border:1px solid rgba(255,120,120,.45); color:#ffd6d6; padding:10px 12px; border-radius:12px; font-family:system-ui; font-size:12px;">
@@ -302,6 +328,66 @@
     </div>
   </div>
 </div>
+
+<div class="liveBar" id="liveBar" aria-live="polite">
+  <div class="liveHdr">
+    <div>
+      <div class="liveTitle" id="liveTitle">Seleziona un Metin</div>
+      <div class="liveSub" id="liveSub">Tocca un puntino/zona sulla mappa</div>
+    </div>
+    <button class="liveClose" id="liveCloseBtn" type="button">×</button>
+  </div>
+
+  <div class="liveReco">
+    <div class="liveRow sure" id="liveSureRow" role="button" tabindex="0">
+      <div class="lcol">
+        <div class="meta" id="liveSureMeta">Sicuro: —</div>
+        <div class="small" id="liveSureSmall"></div>
+      </div>
+      <div class="eta" id="liveSureEta"></div>
+    </div>
+
+    <div class="liveRow unsure" id="liveUnsureRow" role="button" tabindex="0">
+      <div class="lcol">
+        <div class="meta" id="liveUnsureMeta">Non sicuro: —</div>
+        <div class="small" id="liveUnsureSmall"></div>
+      </div>
+      <div class="eta" id="liveUnsureEta"></div>
+    </div>
+  </div>
+
+  <div class="liveBtns">
+    <button id="liveBreakBtn" type="button">Rotto</button>
+    <button id="liveBrokenBtn" type="button">Trovato già rotto</button>
+    <button id="liveNotFoundBtn" type="button">Non trovato</button>
+    <button id="liveExcludeBtn" type="button">Escludi</button>
+    <button id="liveClearBtn" type="button">Clear</button>
+  </div>
+
+  <div class="liveNote" id="liveNote">Tip: seleziona una zona, poi usa i pulsanti qui.</div>
+</div>
+
+
+
+<script>
+/* FORCE_UPDATE_BUILD b3-livebar3 */
+(function(){
+  const BUILD="b3-livebar3";
+  try{
+    const prev = localStorage.getItem("metin_build_id");
+    if (prev !== BUILD){
+      localStorage.setItem("metin_build_id", BUILD);
+      if ("serviceWorker" in navigator){
+        navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).catch(()=>{});
+      }
+      if (window.caches){
+        caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).catch(()=>{});
+      }
+      setTimeout(()=> location.reload(true), 50);
+    }
+  }catch(e){}
+})();
+</script>
 
 <script src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>

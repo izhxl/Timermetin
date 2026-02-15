@@ -322,6 +322,24 @@ const rtRetryEl = document.getElementById("rtRetry");
 
 const sheetBackdrop = document.getElementById("sheetBackdrop");
 const closeSheetBtn = document.getElementById("closeSheetBtn");
+const liveBarEl = document.getElementById("liveBar");
+const liveTitleEl = document.getElementById("liveTitle");
+const liveSubEl = document.getElementById("liveSub");
+const liveCloseBtn = document.getElementById("liveCloseBtn");
+const liveSureMetaEl = document.getElementById("liveSureMeta");
+const liveSureSmallEl = document.getElementById("liveSureSmall");
+const liveSureEtaEl = document.getElementById("liveSureEta");
+const liveUnsureMetaEl = document.getElementById("liveUnsureMeta");
+const liveUnsureSmallEl = document.getElementById("liveUnsureSmall");
+const liveUnsureEtaEl = document.getElementById("liveUnsureEta");
+const liveBreakBtn = document.getElementById("liveBreakBtn");
+const liveBrokenBtn = document.getElementById("liveBrokenBtn");
+const liveNotFoundBtn = document.getElementById("liveNotFoundBtn");
+const liveExcludeBtn = document.getElementById("liveExcludeBtn");
+const liveClearBtn = document.getElementById("liveClearBtn");
+const liveSureRow = document.getElementById("liveSureRow");
+const liveUnsureRow = document.getElementById("liveUnsureRow");
+const liveNoteEl = document.getElementById("liveNote");
 
 const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
@@ -493,6 +511,35 @@ function setActiveProfile(id){
   refreshProfileSelect();
   syncUIFromProfile();
   renderAll();
+  // Live bar buttons
+  liveBreakBtn?.addEventListener("click", ()=> liveAct("break"));
+  liveBrokenBtn?.addEventListener("click", ()=> liveAct("already"));
+  liveNotFoundBtn?.addEventListener("click", ()=> liveAct("notfound"));
+  liveExcludeBtn?.addEventListener("click", ()=> liveAct("exclude"));
+  liveClearBtn?.addEventListener("click", ()=> liveAct("clear"));
+
+  liveCloseBtn?.addEventListener("click", ()=>{
+    openCardFor = null; openCardIsPicker = false;
+    renderAll();
+  });
+
+  liveSureRow?.addEventListener("click", ()=>{
+    const best = bestTargetByConf("sure");
+    if (!best) return;
+    chSelect.value = String(best.ch);
+    openCardFor = best.cluster.id;
+    openCardIsPicker = false;
+    renderAll();
+  });
+  liveUnsureRow?.addEventListener("click", ()=>{
+    const best = bestTargetByConf("unsure");
+    if (!best) return;
+    chSelect.value = String(best.ch);
+    openCardFor = best.cluster.id;
+    openCardIsPicker = false;
+    renderAll();
+  });
+
   startTicker();
 }
 
@@ -586,6 +633,97 @@ function etaMsEffective(ch, cluster, fromPos, virtualNow=null){
   return Math.max(remMs, travelMs) + breakMs;
 }
 
+
+function setLiveText(el, txt){ if (el) el.textContent = txt; }
+function clusterById(id){ const clusters = visibleClusters(); return clusters.find(c=>c.id===id) || null; }
+function fmtTime(ms){ if (ms==null || !Number.isFinite(ms)) return ""; return new Date(ms).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}); }
+
+function bestTargetByConf(confWanted){
+  const fromPos = activeProfile().data.playerPos;
+  let best=null;
+  const t = nowMs();
+  for (let ch=1; ch<=CHANNELS; ch++){
+    for (const c of visibleClusters()){
+      if (isExcluded(ch, c.id)) continue;
+      const rd = clusterReadiness(ch, c);
+      if (!rd.any) continue;
+      if (confWanted && rd.conf !== confWanted) continue;
+      const spawnMs = rd.nextLikelyMs ?? rd.nextMinMs ?? null;
+      if (spawnMs == null) continue;
+      const travelMs = travelSeconds(fromPos, c) * 1000;
+      const breakMs = (activeProfile().settings.useBreakTime ? breakTimeForLevel(c.level) * 1000 : 0);
+      const remMs = spawnMs - t;
+      const etaMs = Math.max(remMs, travelMs) + breakMs;
+      if (!best || etaMs < best.etaMs){
+        best = { ch, id: c.id, cluster: c, etaMs, spawnMs, conf: rd.conf };
+      }
+    }
+  }
+  return best;
+}
+
+function updateRecoRow(best, kind){
+  const isSure = kind === "sure";
+  const metaEl = isSure ? liveSureMetaEl : liveUnsureMetaEl;
+  const smallEl = isSure ? liveSureSmallEl : liveUnsureSmallEl;
+  const etaEl = isSure ? liveSureEtaEl : liveUnsureEtaEl;
+  const rowEl = isSure ? liveSureRow : liveUnsureRow;
+  if (!best){
+    setLiveText(metaEl, (isSure ? "Sicuro: —" : "Non sicuro: —"));
+    setLiveText(smallEl, ""); setLiveText(etaEl, "");
+    rowEl?.classList.add("disabled");
+    return;
+  }
+  rowEl?.classList.remove("disabled");
+  const zoneTxt = String(best.cluster.name || "").trim();
+  setLiveText(metaEl, `${isSure ? "Sicuro" : "Non sicuro"}: CH ${best.ch} • Metin ${best.cluster.level}${zoneTxt ? " • " + zoneTxt : ""}`);
+  setLiveText(smallEl, `Spawn ~ ${fmtTime(best.spawnMs)}`);
+  setLiveText(etaEl, `ETA ~ ${fmtCountdown(nowMs() + best.etaMs)}`);
+}
+
+function updateLiveBar(){
+  if (!liveBarEl) return;
+  const anyTimers = Object.values(activeProfile().data.timersByCh || {}).some(chObj => Object.keys(chObj||{}).length>0);
+  const show = !!openCardFor || anyTimers;
+  liveBarEl.classList.toggle("show", show);
+
+  const ch = Number(chSelect.value || 1);
+  const cluster = openCardFor ? clusterById(openCardFor) : null;
+
+  if (!cluster){
+    setLiveText(liveTitleEl, "Seleziona un Metin");
+    setLiveText(liveSubEl, "Tocca un puntino/zona sulla mappa");
+    setLiveText(liveNoteEl, anyTimers ? "Consigli aggiornati in base ai timer attivi." : "Tip: rompi un Metin e premi Rotto per avviare il timer.");
+  } else {
+    const zoneTxt = String(cluster.name || "").trim();
+    setLiveText(liveTitleEl, `CH ${ch} • Metin ${cluster.level}${zoneTxt ? " • " + zoneTxt : ""}`);
+    const rd = clusterReadiness(ch, cluster);
+    let sub = "";
+    if (!rd.any) sub = "Nessun timer su questo Metin (usa i pulsanti sotto per iniziare)";
+    else if (rd.ready > 0) sub = `IN FINESTRA • slot pronti: ${rd.ready}/${cluster.slots || 1}`;
+    else sub = `Prossimo ~ ${fmtTime(rd.nextLikelyMs ?? rd.nextMinMs)} • ${rd.conf === "sure" ? "sicuro" : "non sicuro"}`;
+    setLiveText(liveSubEl, sub);
+    setLiveText(liveNoteEl, "Azioni: Rotto / Già rotto / Non trovato / Escludi / Clear");
+    setLiveText(liveExcludeBtn, isExcluded(ch, cluster.id) ? "Includi" : "Escludi");
+  }
+
+  updateRecoRow(bestTargetByConf("sure"), "sure");
+  updateRecoRow(bestTargetByConf("unsure"), "unsure");
+}
+
+function liveAct(kind){
+  const ch = Number(chSelect.value || 1);
+  if (!openCardFor) return;
+  const cluster = clusterById(openCardFor);
+  if (!cluster) return;
+  const s = activeProfile().settings;
+
+  if (kind === "break"){ addTimer(ch, cluster, { conf:"sure", skewMs:0 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
+  if (kind === "already"){ const sec = Number(s.alreadyBrokenSec || 0); addTimer(ch, cluster, { conf:"sure", skewMs: sec*1000 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
+  if (kind === "notfound"){ const a = Number(s.nonFoundMinSec || 0); const b = Number(s.nonFoundMaxSec || 0); const mid = (a+b)/2; addTimer(ch, cluster, { conf:"unsure", skewMs: mid*1000 }); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
+  if (kind === "exclude"){ toggleExcluded(ch, cluster.id); renderAll(); return; }
+  if (kind === "clear"){ setTimersArr(ch, cluster.id, []); saveState(); renderAll(); maybeRealtimeAfterChange(); return; }
+}
 // Best recommendation across current CH
 function recommendedClusterId(ch){
   if (!activeProfile().settings.suggest) return null;
