@@ -1,7 +1,3 @@
-// 🔥 Firebase config (incolla qui il firebaseConfig del tuo progetto)
-// Firebase Console → Impostazioni progetto → Le tue app (Web) → "Config"
-//
-// firebase-config.js
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyBZbB2YIZREKapXB3_O9Sn6QYzg1pFtiu0",
   authDomain: "metintimer-c235f.firebaseapp.com",
