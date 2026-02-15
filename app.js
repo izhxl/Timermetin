@@ -6,6 +6,14 @@ const VERSION = "v0.0 revisioned";
 
 // Show any fatal JS error on-screen (helps debugging on iPhone PWA)
 function showFatal(e){
+  const closeBtn = document.getElementById("fatalErrClose");
+  if (closeBtn && !closeBtn.dataset.bound){
+    closeBtn.dataset.bound = "1";
+    closeBtn.addEventListener("click", ()=>{
+      try{ const box=document.getElementById("fatalErr"); if (box) box.style.display="none"; }catch(_){ }
+    });
+  }
+
   try{
     const box = document.getElementById("fatalErr");
     const msgEl = document.getElementById("fatalErrMsg");
@@ -13,6 +21,15 @@ function showFatal(e){
     const msg = (e && (e.message || e.reason)) ? (e.message || e.reason) : String(e);
     msgEl.textContent = msg;
     box.style.display = "";
+    try{
+      if (!box.dataset.bound){
+        box.dataset.bound = "1";
+        box.addEventListener("click", (ev)=>{
+          if (ev.target && (ev.target.id === "fatalErr")) box.style.display = "none";
+        });
+      }
+    }catch(_){ }
+
   }catch(_){}
 }
 window.addEventListener("error", (ev)=> showFatal(ev.error || ev.message));
@@ -140,7 +157,7 @@ async function writeRoomState(){
     rt.lastLocalWriteMs = Date.now();
     const payload = roomPayloadFromLocal();
     payload.updatedAtServer = serverTimestamp();
-    await setDoc(rt.docRef, payload, { merge: true });
+    await setDoc(rt.docRef, payload);
     setRtStatus("ON • sync");
   }catch(e){
     console.error(e);
