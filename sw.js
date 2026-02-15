@@ -1,5 +1,5 @@
 
-const CACHE = "metin-villo2-v0.0-revisioned-realtime-togglefix";
+const CACHE = "metin-villo2-v0.0-revisioned-realtime-togglefix2";
 const ASSETS = [
   "./index.html",
   "./app.js",

@@ -258,7 +258,7 @@ async function connectRealtime(){
   setRtStatus("ON");
 }
 
-function disconnectRealtime(function disconnectRealtime(){
+function disconnectRealtime(){
   rt.enabled = false;
   localStorage.removeItem(RT_KEY);
   if (rt.unsub) { rt.unsub(); rt.unsub = null; }
