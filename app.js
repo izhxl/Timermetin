@@ -4,6 +4,20 @@ const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
 const VERSION = "v0.0 revisioned";
 
+// Show any fatal JS error on-screen (helps debugging on iPhone PWA)
+function showFatal(e){
+  try{
+    const box = document.getElementById("fatalErr");
+    const msgEl = document.getElementById("fatalErrMsg");
+    if (!box || !msgEl) return;
+    const msg = (e && (e.message || e.reason)) ? (e.message || e.reason) : String(e);
+    msgEl.textContent = msg;
+    box.style.display = "";
+  }catch(_){}
+}
+window.addEventListener("error", (ev)=> showFatal(ev.error || ev.message));
+window.addEventListener("unhandledrejection", (ev)=> showFatal(ev.reason));
+
 
 // === REALTIME_SYNC (Firebase Firestore) ===
 // Single room: rooms/villo2 (doc)
@@ -22,16 +36,12 @@ let rt = {
   unsub: null,
   applyingRemote: false,
   lastLocalWriteMs: 0,
-  connecting: false,
-  connectToken: 0,
 };
 
 function setRtStatus(txt){
   if (!rtStatusEl) return;
   rtStatusEl.textContent = txt;
 }
-function rtSleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
-
 function rtErrText(e){
   if (!e) return "errore";
   const code = e.code || e.name || "";
@@ -80,7 +90,7 @@ async function ensureFirebase(){
   setRtStatus("Carico SDK...");
   if (rt.ready) return;
   const cfg = window.FIREBASE_CONFIG;
-  if (!cfg) throw Object.assign(new Error("firebase-config-missing"), { code: "config-missing" });
+  if (!cfg) throw new Error("firebase-config-missing");
 
   const [{ initializeApp }, { getAuth, signInAnonymously, onAuthStateChanged }, { getFirestore, doc, onSnapshot, setDoc, serverTimestamp }] =
     await Promise.all([
@@ -96,9 +106,7 @@ async function ensureFirebase(){
     rt.docRef = doc(rt.db, "rooms", ROOM_ID);
 
     setRtStatus("Login anonimo...");
-    if (!rt.auth.currentUser){
-      await signInAnonymously(rt.auth);
-    }
+    if (!rt.auth.currentUser) await signInAnonymously(rt.auth);
     onAuthStateChanged(rt.auth, (user)=>{
       rt.uid = user ? user.uid : null;
       setRtUid(rt.uid);
@@ -169,103 +177,64 @@ function applyRoomToLocal(roomData){
 }
 
 async function connectRealtime(){
-  // Prevent parallel connects
-  if (rt.connecting){
-    // if a previous attempt got stuck, allow a new connect when toggled again
-    if (!rt.enabled) rt.connecting = false; else return;
-  }
-  rt.connecting = true;
-  const token = ++rt.connectToken;
-
   rt.enabled = true;
   localStorage.setItem(RT_KEY, "1");
   setRtStatus("Connessione...");
+  if (rt.unsub){ try{ rt.unsub(); }catch{} rt.unsub=null; }
+  const rtConnectTimeout = setTimeout(()=>{
+    if (rt.enabled && rtStatusEl && rtStatusEl.textContent.startsWith("Connessione")){
+      setRtStatus("Timeout: controlla Auth domains / Rules");
+    }
+  }, 8000);
   switchToRoomProfile();
 
-  if (!navigator.onLine){
-    setRtStatus("Offline (no rete)");
-    rt.connecting = false;
+  try{
+    await ensureFirebase();
+    await new Promise(r=>setTimeout(r, 150));
+  }catch(e){
+    console.error(e);
+    if (String(e).includes("firebase-config-missing")){
+      setRtStatus("Config mancante");
+    }else{
+      setRtStatus("Init: " + rtErrText(e));
+    }
+    rt.enabled = false;
+    localStorage.removeItem(RT_KEY);
+    if (rtEnableEl) rtEnableEl.checked = false;
     return;
   }
 
-  // Longer timeout: some networks are slow
-  const rtConnectTimeout = setTimeout(()=>{
-    if (rt.enabled && token === rt.connectToken && rtStatusEl && rtStatusEl.textContent.startsWith("Connessione")){
-      setRtStatus("Timeout: rete/Auth/Rules");
-    }
-  }, 20000);
+  try{
+    const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
+    if (rt.unsub) rt.unsub();
+    rt.unsub = onSnapshot(rt.docRef, (snap)=>{
+      if (!snap.exists()){
+        writeRoomState();
+        return;
+      }
+      applyRoomToLocal(snap.data());
+      clearTimeout(rtConnectTimeout);
+      clearTimeout(rtConnectTimeout);
+    setRtStatus("ON");
+    }, (err)=>{
+      console.error(err);
+      setRtStatus("Listen: " + rtErrText(err));
+    });
 
-  // 1) Init + auth with retries
-  let okInit = false;
-  for (let i=0; i<3; i++){
-    if (!rt.enabled || token !== rt.connectToken) break;
-    try{
-      await ensureFirebase();
-      // Let auth state settle (helps on iOS/fast toggles)
-      await rtSleep(200);
-      okInit = true;
-      break;
-    }catch(e){
-      console.error(e);
-      setRtStatus(`Init: ${rtErrText(e)} (retry ${i+1}/3)`);
-      await rtSleep(800*(i+1));
-    }
+    writeRoomState();
+    setRtStatus("ON");
+  }catch(e){
+    console.error(e);
+    setRtStatus("Listen: " + rtErrText(err));
   }
-  if (!okInit || !rt.enabled || token !== rt.connectToken){
-    clearTimeout(rtConnectTimeout);
-    rt.connecting = false;
-    return;
-  }
-
-  // 2) Subscribe with retries
-  let okListen = false;
-  for (let i=0; i<3; i++){
-    if (!rt.enabled || token !== rt.connectToken) break;
-    try{
-      const { onSnapshot } = await import("https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js");
-      if (rt.unsub) { rt.unsub(); rt.unsub = null; }
-
-      rt.unsub = onSnapshot(rt.docRef, (snap)=>{
-        if (!snap.exists()){
-          writeRoomState();
-          return;
-        }
-        applyRoomToLocal(snap.data());
-        setRtStatus("ON");
-      }, (err)=>{
-        console.error(err);
-        setRtStatus("Listen: " + rtErrText(err));
-      });
-
-      await writeRoomState();
-      okListen = true;
-      break;
-    }catch(e){
-      console.error(e);
-      setRtStatus(`Listen: ${rtErrText(e)} (retry ${i+1}/3)`);
-      await rtSleep(900*(i+1));
-    }
-  }
-
-  clearTimeout(rtConnectTimeout);
-  rt.connecting = false;
-
-  if (!okListen){
-    setRtStatus("Errore listen");
-    return;
-  }
-
-  setRtStatus("ON");
 }
 
 function disconnectRealtime(){
   rt.enabled = false;
   localStorage.removeItem(RT_KEY);
-  if (rt.unsub) { rt.unsub(); rt.unsub = null; }
+  if (rt.unsub) { try{ rt.unsub(); }catch{} rt.unsub = null; }
   setRtStatus("OFF");
-  // Soft disconnect: keep Firebase app/auth loaded so ON works reliably.
-  // Keep you on the room profile to avoid switching back/forth causing weird states.
-  renderAll();
+  // Soft disconnect: keep Firebase/auth loaded so ON works reliably.
 }
 
 function maybeRealtimeAfterChange(){
@@ -322,6 +291,7 @@ const rtEnableEl = document.getElementById("rtEnable");
 const rtStatusEl = document.getElementById("rtStatus");
 const rtUserLineEl = document.getElementById("rtUserLine");
 const rtUidEl = document.getElementById("rtUid");
+const rtRetryEl = document.getElementById("rtRetry");
 
 const sheetBackdrop = document.getElementById("sheetBackdrop");
 const closeSheetBtn = document.getElementById("closeSheetBtn");
@@ -1471,6 +1441,12 @@ function clearMeasure(){
   });
 
   // Realtime toggle
+  if (rtRetryEl){
+    rtRetryEl.addEventListener("click", ()=>{
+      if (rtEnableEl) rtEnableEl.checked = true;
+      connectRealtime();
+    });
+  }
   if (rtEnableEl){
     rtEnableEl.checked = (localStorage.getItem(RT_KEY) === "1");
     rtEnableEl.addEventListener("change", ()=>{

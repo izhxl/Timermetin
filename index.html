@@ -165,6 +165,10 @@
   </style>
 </head>
 <body>
+<div id="fatalErr" style="display:none; position:fixed; z-index:99999; left:8px; right:8px; top:8px; background:rgba(40,10,10,.92); border:1px solid rgba(255,120,120,.45); color:#ffd6d6; padding:10px 12px; border-radius:12px; font-family:system-ui; font-size:12px;">
+  <div style="font-weight:800; margin-bottom:6px;">Errore app</div>
+  <div id="fatalErrMsg" style="white-space:pre-wrap;"></div>
+</div>
 <header>
   <select id="profileSelect" title="Profilo"></select>
   <button id="profileManageBtn" title="Gestione profili">Profili</button>
@@ -270,6 +274,7 @@
         <label>Realtime ON <input id="rtEnable" type="checkbox"></label>
         <div class="muted" style="margin-top:8px; font-size:12px;">Stanza: <b>villo2</b> (unica)</div>
         <div class="muted" style="margin-top:6px; font-size:12px;">Stato: <span id="rtStatus">OFF</span></div>
+<div style="margin-top:10px;"><button id="rtRetry" type="button">Riprova connessione</button></div>
         <div class="muted" id="rtUserLine" style="margin-top:6px; font-size:12px; display:none;">UID: <span id="rtUid"></span></div>
         <div class="muted" style="margin-top:8px; font-size:12px;">
           Per attivare: incolla la config in <b>firebase-config.js</b> (nel repo). Poi abilita “Anonymous” su Firebase Auth e (se ti dà errore <i>unauthorized-domain</i>) aggiungi il dominio GitHub Pages tra gli “Authorized domains”.
