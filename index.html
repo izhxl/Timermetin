@@ -192,6 +192,38 @@
     .recoRow.sure{ border-color: rgba(120,255,160,.35); background: rgba(20,70,30,.22); }
     .recoRow.unsure{ border-color: rgba(255,210,90,.35); background: rgba(70,55,18,.22); }
     .recoRow.disabled{ opacity:.55; }
+
+
+/* v0.1 tweaks */
+#profileSelect, #profileManageBtn{ display:none !important; }
+
+/* Larger hitbox without changing dot too much */
+.marker::before{
+  content:"";
+  position:absolute;
+  left:-10px; right:-10px; top:-10px; bottom:-10px;
+}
+
+/* Stronger selection */
+.marker.selected{
+  outline:4px solid rgba(255,255,255,.9);
+  outline-offset:2px;
+  box-shadow: 0 0 0 6px rgba(0,0,0,.25), 0 0 18px rgba(255,255,255,.55);
+}
+
+/* Live bar buttons */
+#liveBar button{
+  padding:10px 12px;
+  font-size:13px;
+  border-radius:14px;
+}
+#liveBreak{ background: rgba(40,140,80,.35); border-color: rgba(80,255,150,.35); }
+#liveBroken{ background: rgba(140,110,30,.30); border-color: rgba(255,220,90,.35); }
+#liveNotFound{ background: rgba(140,110,30,.22); border-color: rgba(255,220,90,.28); }
+#liveClear{ background: rgba(160,80,80,.18); border-color: rgba(255,160,160,.30); }
+
+/* Ensure settings sheet can scroll comfortably on mobile */
+.sheetCard{ padding-bottom: 96px; }
 </style>
 </head>
 <body>
@@ -246,9 +278,16 @@
     <div class="grid">
       <div class="box">
         <div style="font-weight:800; margin-bottom:8px;">Respawn (min)</div>
-        <label>Min <input id="minMin" type="number" min="1" value="22"></label>
-        <label style="margin-top:8px;">Probabile <input id="modeMin" type="number" min="1" step="0.5" value="25"></label>
-        <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" value="28"></label>
+<label style="margin-top:2px;">Preset
+  <select id="respawnPreset" style="margin-left:8px;">
+    <option value="252627">25 / 26 / 27 (consigliato)</option>
+    <option value="222528">22 / 25 / 28 (largo)</option>
+    <option value="custom">Personalizzato</option>
+  </select>
+</label>
+        <label>Min <input id="minMin" type="number" min="1" value="25"></label>
+        <label style="margin-top:8px;">Probabile <input id="modeMin" type="number" min="1" step="0.5" value="26"></label>
+        <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" value="27"></label>
 <div class="muted" style="margin-top:8px; font-size:12px;">Distribuzione realistica: finestra min–max + probabile.</div>
         <label style="margin-top:10px;">Stima “già rotto” (s) <input id="alreadyBrokenSec" type="number" min="0" value="60"></label>
         <label style="margin-top:8px;">“Non trovato” min (s) <input id="nonFoundMinSec" type="number" min="0" value="60"></label>
@@ -278,8 +317,8 @@
         </label>
         <label style="margin-top:8px;">Vista Metin
           <select id="metinView" style="margin-left:8px;">
-            <option value="detailedLevels">Dettagliata (25/30/35)</option>
             <option value="simple">Semplificata (solo 30)</option>
+            <option value="detailedLevels">Dettagliata (25/30/35)</option>
           </select>
         </label>
         <label style="margin-top:8px;">Auto-clear se ritardo &gt; 5 min <input id="autoClearLate" type="checkbox"></label>

@@ -2,7 +2,8 @@
 // Metin Timer • Villo 2 — Refactor build v1.0-refactor
 const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
-const VERSION = "v0.0 revisioned";
+const VERSION = "v0.1";
+let selectedId = null;
 
 function showFatal(err){
   try{
@@ -79,6 +80,7 @@ const liveHideBtn = document.getElementById("liveHide");
 const overlay = document.getElementById("overlay");
 const chSelect = document.getElementById("chSelect");
 const filterSelect = document.getElementById("filterSelect");
+const filterWrap = filterSelect ? filterSelect.closest("label") : null;
 
 const profileSelect = document.getElementById("profileSelect");
 const profileManageBtn = document.getElementById("profileManageBtn");
@@ -93,6 +95,7 @@ const closeSheetBtn = document.getElementById("closeSheetBtn");
 const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
 const maxMinEl = document.getElementById("maxMin");
+const respawnPresetEl = document.getElementById("respawnPreset");
 const alreadyBrokenSecEl = document.getElementById("alreadyBrokenSec");
 const nonFoundMinSecEl = document.getElementById("nonFoundMinSec");
 const nonFoundMaxSecEl = document.getElementById("nonFoundMaxSec");
@@ -213,9 +216,10 @@ function defaultProfile(){
       version: VERSION,
       filter: "all",
       mapStyle: "markers",
-      minMin: 22,
-      modeMin: 25,
-      maxMin: 28,
+      minMin: 25,
+      modeMin: 26,
+      maxMin: 27,
+      respawnPreset: "252627",
       alreadyBrokenSec: 60,
       nonFoundMinSec: 60,
       nonFoundMaxSec: 240,
@@ -228,12 +232,13 @@ function defaultProfile(){
       break25: 12,
       break30: 18,
       break35: 25,
+      breakAvg: 18,
       useBreakTime: true,
       secPerPct: 2.0,
       uiMode: "bar",
-      metinView: "detailedLevels",
+      metinView: "simple",
       liveBarHidden: false,
-      autoClearLate: false,
+      autoClearLate: true,
     },
     data: {
       timersByCh,
@@ -248,16 +253,37 @@ function defaultProfile(){
   };
 }
 
+
+function ensureSingleDefaultProfile(s){
+  try{
+    if (!s || !s.profiles) return s;
+    const ids = Object.keys(s.profiles);
+    if (!ids.length) return s;
+    const keep = s.activeProfileId && s.profiles[s.activeProfileId] ? s.activeProfileId : ids[0];
+    // Keep only one profile
+    const prof = s.profiles[keep];
+    s.profiles = { [keep]: prof };
+    s.activeProfileId = keep;
+    // Ensure name + defaults
+    prof.name = "Default";
+    // Ensure defaults for new settings
+    prof.settings = Object.assign(defaultProfile().settings, prof.settings||{});
+    // Default to simplified + bar
+    prof.settings.metinView = prof.settings.metinView || "simple";
+    if (prof.settings.metinView === "simple") prof.settings.uiMode = "bar";
+    return s;
+  }catch{ return s; }
+}
 function loadState(){
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) throw new Error("no state");
-    const s = JSON.parse(raw);
+    const s = ensureSingleDefaultProfile(JSON.parse(raw));
     if (!s.profiles || !s.activeProfileId) throw new Error("bad state");
     return s;
   } catch {
     const id = "p_" + Math.random().toString(16).slice(2,8);
-    return { profiles: { [id]: defaultProfile() }, activeProfileId: id };
+    const prof = defaultProfile(); prof.name="Default"; return { profiles: { [id]: prof }, activeProfileId: id };
   }
 }
 let state = loadState();
@@ -289,6 +315,10 @@ function computeNextSpawnMs(ch, clusterId){
 
 function breakTimeForLevel(level){
   const s = activeProfile().settings;
+  // In modalità semplificata usiamo un solo valore (breakAvg) per comodità.
+  if (s.metinView === "simple"){
+    return Number(s.breakAvg ?? s.break30) || 0;
+  }
   if (level === 25) return Number(s.break25) || 0;
   if (level === 30) return Number(s.break30) || 0;
   return Number(s.break35) || 0;
@@ -438,6 +468,36 @@ function bestTargetByConf(confWanted){
   return best;
 }
 
+
+function stripLevelPrefix(name){
+  return String(name||"").replace(/^\s*\d+\s*•\s*/,"").trim();
+}
+function fraFinestraTextForBest(best){
+  if (!best) return { meta:"—", line:"" };
+  const t = nowMs();
+  const arr = timersArr(best.ch, best.cluster.id);
+  let chosen = null;
+  let bestDiff = Infinity;
+  for (const slot of arr){
+    const st = slotWindowState(slot);
+    // choose the slot whose likely is closest to spawnMs
+    const diff = Math.abs((st.likelyMs ?? st.minMs) - best.spawnMs);
+    if (diff < bestDiff){ bestDiff=diff; chosen={slot, st}; }
+  }
+  let fra="—", fin="—";
+  if (chosen){
+    const {minMs, maxMs, likelyMs} = chosen.st;
+    if (t < likelyMs) fra = fmtCountdown(likelyMs - t);
+    else fra = "0:00";
+    if (t >= minMs && t <= maxMs) fin = fmtCountdown(maxMs - t);
+    else if (t > maxMs) fin = "0:00";
+  } else {
+    // fallback
+    const rem = Math.max(0, best.spawnMs - t);
+    fra = fmtCountdown(rem);
+  }
+  return { line: `Fra: ${fra} • Finestra: ${fin}` };
+}
 function renderRecoRow(kind, best){
   if (kind === "sure"){
     if (!liveRecoSureEl) return;
@@ -448,8 +508,9 @@ function renderRecoRow(kind, best){
       return;
     }
     liveRecoSureEl.classList.remove("disabled");
-    liveRecoSureMetaEl.textContent = `Sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${best.cluster.name}`;
-    liveRecoSureEtaEl.textContent = `ETA ~ ${fmtCountdown(best.etaMs)}`;
+    const zoneName = (activeProfile().settings.metinView==="simple") ? stripLevelPrefix(best.cluster.name) : best.cluster.name;
+    liveRecoSureMetaEl.textContent = (activeProfile().settings.metinView==="simple") ? `Sicuro: CH ${best.ch} • ${zoneName}` : `Sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${zoneName}`;
+    liveRecoSureEtaEl.textContent = fraFinestraTextForBest(best).line;
   } else {
     if (!liveRecoUnsureEl) return;
     if (!best){
@@ -459,8 +520,9 @@ function renderRecoRow(kind, best){
       return;
     }
     liveRecoUnsureEl.classList.remove("disabled");
-    liveRecoUnsureMetaEl.textContent = `Non sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${best.cluster.name}`;
-    liveRecoUnsureEtaEl.textContent = `ETA ~ ${fmtCountdown(best.etaMs)}`;
+    const zoneName = (activeProfile().settings.metinView==="simple") ? stripLevelPrefix(best.cluster.name) : best.cluster.name;
+    liveRecoUnsureMetaEl.textContent = (activeProfile().settings.metinView==="simple") ? `Non sicuro: CH ${best.ch} • ${zoneName}` : `Non sicuro: CH ${best.ch} • Metin ${best.cluster.level} • ${zoneName}`;
+    liveRecoUnsureEtaEl.textContent = fraFinestraTextForBest(best).line;
   }
 }
 
@@ -630,6 +692,19 @@ Scrivi 1, 2 o 3:`
   alert("Scelta non valida.");
 }
 
+function applyMetinViewUI(){
+  const s = activeProfile().settings;
+  const isSimple = (s.metinView === "simple");
+  // Hide 'Mostra' filter in semplificata
+  try{
+    const lab = filterSelect && filterSelect.closest("label");
+    if (lab) lab.style.display = isSimple ? "none" : "";
+  }catch(_){}
+  // Toggle break blocks
+  if (breakDetailedWrap) breakDetailedWrap.style.display = isSimple ? "none" : "";
+  if (breakSimpleWrap) breakSimpleWrap.style.display = isSimple ? "" : "none";
+}
+
 function syncUIFromProfile(){
   const p=activeProfile();
   filterSelect.value = p.settings.filter;
@@ -638,6 +713,12 @@ function syncUIFromProfile(){
   minMinEl.value = String(p.settings.minMin);
   modeMinEl.value = String(p.settings.modeMin);
   maxMinEl.value = String(p.settings.maxMin);
+  if (respawnPresetEl){
+    const key = `${p.settings.minMin}/${p.settings.modeMin}/${p.settings.maxMin}`;
+    if (key === "25/26/27") respawnPresetEl.value = "252627";
+    else if (key === "22/25/28") respawnPresetEl.value = "222528";
+    else respawnPresetEl.value = "custom";
+  }
   alreadyBrokenSecEl.value = String(p.settings.alreadyBrokenSec ?? 60);
   if (nonFoundMinSecEl) nonFoundMinSecEl.value = String(p.settings.nonFoundMinSec ?? 60);
   if (nonFoundMaxSecEl) nonFoundMaxSecEl.value = String(p.settings.nonFoundMaxSec ?? 240);
@@ -654,6 +735,10 @@ function syncUIFromProfile(){
   break35El.value=String(p.settings.break35);
   togBreakTime.checked=!!p.settings.useBreakTime;
 
+  // Break times
+  if (breakAvgEl) breakAvgEl.value = String(p.settings.breakAvg ?? p.settings.break30 ?? 0);
+  // Toggle visibility for simplified/detailed views
+  applyMetinViewUI();
   secPerPctEl.value=String(p.settings.secPerPct);
 
   updateMeasureInfo();
@@ -662,6 +747,12 @@ function syncUIFromProfile(){
 function syncSettingsFromUI(){
   const p=activeProfile();
   // respawn
+  const preset = respawnPresetEl ? respawnPresetEl.value : "custom";
+  if (preset === "252627"){
+    minMinEl.value = "25"; modeMinEl.value = "26"; maxMinEl.value = "27";
+  } else if (preset === "222528"){
+    minMinEl.value = "22"; modeMinEl.value = "25"; maxMinEl.value = "28";
+  }
   const minV=clamp(Number(minMinEl.value), 1, 999);
   const maxV=Math.max(minV+0.5, Number(maxMinEl.value));
   const modeV=clamp(Number(modeMinEl.value), minV, maxV);
@@ -673,6 +764,7 @@ function syncSettingsFromUI(){
   p.settings.minMin=minV;
   p.settings.maxMin=maxV;
   p.settings.modeMin=modeV;
+  if (respawnPresetEl) p.settings.respawnPreset = respawnPresetEl.value;
   p.settings.alreadyBrokenSec = Math.max(0, Number(alreadyBrokenSecEl.value) || 0);
   if (nonFoundMinSecEl && nonFoundMaxSecEl){
     const nfMin = Math.max(0, Number(nonFoundMinSecEl.value) || 0);
@@ -690,11 +782,13 @@ function syncSettingsFromUI(){
   if (uiModeEl) p.settings.uiMode = uiModeEl.value;
   if (p.settings.uiMode === "bar"){ openCardFor=null; openCardIsPicker=false; }
   if (metinViewEl) p.settings.metinView = metinViewEl.value;
+  applyMetinViewUI();
   if (autoClearLateEl) p.settings.autoClearLate = !!autoClearLateEl.checked;
 
   p.settings.break25=Math.max(0, Number(break25El.value) || 0);
   p.settings.break30=Math.max(0, Number(break30El.value) || 0);
   p.settings.break35=Math.max(0, Number(break35El.value) || 0);
+  if (breakAvgEl) p.settings.breakAvg = Math.max(0, Number(breakAvgEl.value) || 0);
   p.settings.useBreakTime=!!togBreakTime.checked;
 
   p.settings.secPerPct=Math.max(0, Number(secPerPctEl.value) || 0);
@@ -984,7 +1078,10 @@ function renderAll(){
   if (typeof selectedId !== 'undefined' && selectedId && !clusters.find(x=>x.id===selectedId)) selectedId = null;
   const offsets = computeOffsetsPx(clusters);
 
-  // timer labels (always)
+    // cleanup old timer labels
+  document.querySelectorAll('.tlabel').forEach(n=>n.remove());
+
+// timer labels (always)
   for (const c of clusters){
     const off = offsets.get(c.id) || {ox:0,oy:0};
     addTimerLabel(ch, c, off);
@@ -1190,17 +1287,18 @@ function updateAllLabels(){
     if (styleNow === "zones"){
       const show = (!openCardIsPicker && openCardFor === id);
       if (!show){
-        lab.textContent='';
+        lab.textContent=''; lab.style.display='none';
         lab.classList.remove('sure','unsure','up','window','late');
         return;
       }
     }
 
     lab.classList.remove('sure','unsure','up','window','late');
-    if (!c){ lab.textContent=''; return; }
+    if (!c){ lab.textContent=''; lab.style.display='none'; return; }
     const info = clusterReadiness(ch, c);
-    if (!info.any){ lab.textContent=''; return; }
+    if (!info.any){ lab.textContent=''; lab.style.display='none'; return; }
     if (info.conf === 'unsure') lab.classList.add('unsure'); else lab.classList.add('sure');
+    lab.style.display='';
 
     if (info.ready > 0){
       // show remaining window time instead of 'UP'
@@ -1225,7 +1323,7 @@ function updateAllLabels(){
 
     const arr = timersArr(ch, c.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs);
     const first = arr[0] || null;
-    if (!first){ lab.textContent=''; return; }
+    if (!first){ lab.textContent=''; lab.style.display='none'; return; }
     const st = slotStatusText(first);
     lab.textContent = st.text;
     if (st.cls) lab.classList.add(st.cls);
@@ -1495,7 +1593,7 @@ function clearMeasure(){
 
   // Settings inputs
   [
-    minMinEl, modeMinEl, maxMinEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
+    minMinEl, modeMinEl, maxMinEl, respawnPresetEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
     mapStyleEl, togSuggest, togRoute, togSpawnGlow, autoPosLastEl, chSuggestThresholdEl, togDetailed,
     uiModeEl, metinViewEl, autoClearLateEl,
     break25El, break30El, break35El, breakAvgEl, togBreakTime,
