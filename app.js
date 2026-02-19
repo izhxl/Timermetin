@@ -96,6 +96,7 @@ const minMinEl = document.getElementById("minMin");
 const modeMinEl = document.getElementById("modeMin");
 const maxMinEl = document.getElementById("maxMin");
 const respawnPresetEl = document.getElementById("respawnPreset");
+const serverLoadPresetEl = document.getElementById("serverLoadPreset");
 const alreadyBrokenSecEl = document.getElementById("alreadyBrokenSec");
 const nonFoundMinSecEl = document.getElementById("nonFoundMinSec");
 const nonFoundMaxSecEl = document.getElementById("nonFoundMaxSec");
@@ -221,6 +222,7 @@ function defaultProfile(){
       maxMin: 27,
       respawnPreset: "252627",
       alreadyBrokenSec: 60,
+      notFoundPushSec: 60,
       nonFoundMinSec: 60,
       nonFoundMaxSec: 240,
       suggest: true,
@@ -484,19 +486,22 @@ function fraFinestraTextForBest(best){
     const diff = Math.abs((st.likelyMs ?? st.minMs) - best.spawnMs);
     if (diff < bestDiff){ bestDiff=diff; chosen={slot, st}; }
   }
-  let fra="—", fin="—";
+  let txt="—";
   if (chosen){
-    const {minMs, maxMs, likelyMs} = chosen.st;
-    if (t < likelyMs) fra = fmtCountdown(likelyMs - t);
-    else fra = "0:00";
-    if (t >= minMs && t <= maxMs) fin = fmtCountdown(maxMs - t);
-    else if (t > maxMs) fin = "0:00";
+    const {minMs, maxMs} = chosen.st;
+    if (t < minMs){
+      txt = `Min: ${fmtCountdown(minMs - t)}`;
+    } else if (t <= maxMs){
+      txt = `In finestra: ${fmtCountdown(maxMs - t)}`;
+    } else {
+      txt = `Scaduto`;
+    }
   } else {
     // fallback
     const rem = Math.max(0, best.spawnMs - t);
-    fra = fmtCountdown(rem);
+    txt = `Min: ${fmtCountdown(rem)}`;
   }
-  return { line: `Fra: ${fra} • Finestra: ${fin}` };
+  return { line: txt };
 }
 function renderRecoRow(kind, best){
   if (kind === "sure"){
@@ -692,6 +697,33 @@ Scrivi 1, 2 o 3:`
   alert("Scelta non valida.");
 }
 
+
+function applyServerLoadPreset(key){
+  const p = activeProfile();
+  if (!p) return;
+  if (key === "morning"){
+    p.settings.minMin = 25;
+    p.settings.modeMin = 25;
+    p.settings.maxMin = 25.5;
+    p.settings.alreadyBrokenSec = 45;
+    p.settings.notFoundPushSec = 30;
+  } else if (key === "afternoon"){
+    p.settings.minMin = 25.5;
+    p.settings.modeMin = 26;
+    p.settings.maxMin = 27;
+    p.settings.alreadyBrokenSec = 90;
+    p.settings.notFoundPushSec = 60;
+  } else if (key === "event"){
+    p.settings.minMin = 27;
+    p.settings.modeMin = 28.5;
+    p.settings.maxMin = 30;
+    p.settings.alreadyBrokenSec = 180;
+    p.settings.notFoundPushSec = 120;
+  }
+  p.settings.serverLoadPreset = key;
+  if (respawnPresetEl) respawnPresetEl.value = "custom";
+}
+
 function applyMetinViewUI(){
   const s = activeProfile().settings;
   const isSimple = (s.metinView === "simple");
@@ -713,6 +745,7 @@ function syncUIFromProfile(){
   minMinEl.value = String(p.settings.minMin);
   modeMinEl.value = String(p.settings.modeMin);
   maxMinEl.value = String(p.settings.maxMin);
+  if (serverLoadPresetEl) serverLoadPresetEl.value = String(p.settings.serverLoadPreset || "morning");
   if (respawnPresetEl){
     const key = `${p.settings.minMin}/${p.settings.modeMin}/${p.settings.maxMin}`;
     if (key === "25/26/27") respawnPresetEl.value = "252627";
@@ -748,6 +781,16 @@ function syncSettingsFromUI(){
   const p=activeProfile();
   // respawn
   const preset = respawnPresetEl ? respawnPresetEl.value : "custom";
+  if (serverLoadPresetEl){
+    const k = serverLoadPresetEl.value;
+    if (k && k !== (p.settings.serverLoadPreset||"")){
+      applyServerLoadPreset(k);
+      minMinEl.value = String(p.settings.minMin);
+      modeMinEl.value = String(p.settings.modeMin);
+      maxMinEl.value = String(p.settings.maxMin);
+      alreadyBrokenSecEl.value = String(p.settings.alreadyBrokenSec ?? 60);
+    }
+  }
   if (preset === "252627"){
     minMinEl.value = "25"; modeMinEl.value = "26"; maxMinEl.value = "27";
   } else if (preset === "222528"){
@@ -765,6 +808,7 @@ function syncSettingsFromUI(){
   p.settings.maxMin=maxV;
   p.settings.modeMin=modeV;
   if (respawnPresetEl) p.settings.respawnPreset = respawnPresetEl.value;
+  if (serverLoadPresetEl) p.settings.serverLoadPreset = serverLoadPresetEl.value;
   p.settings.alreadyBrokenSec = Math.max(0, Number(alreadyBrokenSecEl.value) || 0);
   if (nonFoundMinSecEl && nonFoundMaxSecEl){
     const nfMin = Math.max(0, Number(nonFoundMinSecEl.value) || 0);
@@ -1593,7 +1637,7 @@ function clearMeasure(){
 
   // Settings inputs
   [
-    minMinEl, modeMinEl, maxMinEl, respawnPresetEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
+    minMinEl, modeMinEl, maxMinEl, respawnPresetEl, serverLoadPresetEl, alreadyBrokenSecEl, nonFoundMinSecEl, nonFoundMaxSecEl,
     mapStyleEl, togSuggest, togRoute, togSpawnGlow, autoPosLastEl, chSuggestThresholdEl, togDetailed,
     uiModeEl, metinViewEl, autoClearLateEl,
     break25El, break30El, break35El, breakAvgEl, togBreakTime,

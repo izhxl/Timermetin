@@ -278,6 +278,13 @@
     <div class="grid">
       <div class="box">
         <div style="font-weight:800; margin-bottom:8px;">Respawn (min)</div>
+<label style="margin-top:2px;">Scenario server
+  <select id="serverLoadPreset" style="margin-left:8px;">
+    <option value="morning">Mattina (preciso)</option>
+    <option value="afternoon">Pomeriggio (medio)</option>
+    <option value="event">Evento (alto carico)</option>
+  </select>
+</label>
 <label style="margin-top:2px;">Preset
   <select id="respawnPreset" style="margin-left:8px;">
     <option value="252627">25 / 26 / 27 (consigliato)</option>
@@ -285,9 +292,9 @@
     <option value="custom">Personalizzato</option>
   </select>
 </label>
-        <label>Min <input id="minMin" type="number" min="1" value="25"></label>
+        <label>Min <input id="minMin" type="number" min="1" step="0.5" value="25"></label>
         <label style="margin-top:8px;">Probabile <input id="modeMin" type="number" min="1" step="0.5" value="26"></label>
-        <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" value="27"></label>
+        <label style="margin-top:8px;">Max <input id="maxMin" type="number" min="1" step="0.5" value="25.5"></label>
 <div class="muted" style="margin-top:8px; font-size:12px;">Distribuzione realistica: finestra min–max + probabile.</div>
         <label style="margin-top:10px;">Stima “già rotto” (s) <input id="alreadyBrokenSec" type="number" min="0" value="60"></label>
         <label style="margin-top:8px;">“Non trovato” min (s) <input id="nonFoundMinSec" type="number" min="0" value="60"></label>
