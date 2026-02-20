@@ -2,7 +2,7 @@
 // Metin Timer • Villo 2 — Refactor build v1.0-refactor
 const STORAGE_KEY = "metin_villo2_refactor_state_v1";
 const CHANNELS = 6;
-const VERSION = "v0.1";
+const VERSION = "v0.1.4";
 let selectedId = null;
 
 function showFatal(err){
@@ -1105,7 +1105,7 @@ function updateLiveBar(){
   }
   const next = computeNextSpawnMs(ch, c.id);
   const status = (next==null) ? "—" : ("Spawn ~ " + fmtTime(next) + " • tra " + fmtCountdown(next - nowMs()));
-  liveTitleEl.textContent = `CH ${ch} • Metin ${c.level} • ${c.name}`;
+  liveTitleEl.textContent = (activeProfile().settings.metinView==="simple") ? `CH ${ch} • ${stripLevelPrefix(c.name)}` : `CH ${ch} • Metin ${c.level} • ${c.name}`;
   liveSubEl.textContent = status;
   [liveBreakBtn, liveBrokenBtn, liveNotFoundBtn, liveExcludeBtn, liveClearBtn].forEach(b=> b && (b.disabled=false));
   // exclude button hint
@@ -1280,39 +1280,7 @@ function renderAll(){
       requestAnimationFrame(()=> clampCardIntoMap(picker));
     }
   }
-
-  // CH suggestion toast (simple)
-  updateLiveBar();
-
-  const oldToast=document.getElementById("chToast");
-  if (oldToast) oldToast.remove();
-  if (bestCh && bestCh.ch !== ch && currentBest && (currentBest.eta - bestCh.eta) >= thresholdS*1000){
-    const toast=document.createElement("div");
-    toast.id="chToast";
-    toast.style.position="fixed";
-    toast.style.left="50%";
-    toast.style.bottom="18px";
-    toast.style.transform="translateX(-50%)";
-    toast.style.background="rgba(0,0,0,.78)";
-    toast.style.border="1px solid rgba(255,255,255,.14)";
-    toast.style.borderRadius="14px";
-    toast.style.padding="10px 10px";
-    toast.style.zIndex="60";
-    toast.style.boxShadow="0 10px 28px rgba(0,0,0,.35)";
-    toast.style.backdropFilter="blur(6px)";
-    toast.innerHTML = `
-      <div style="font-size:12px; opacity:.9;">
-        Suggerimento: CH <b>${bestCh.ch}</b> (ETA ~ <b>${fmtCountdown(bestCh.eta)}</b>)
-      </div>
-      <div style="margin-top:8px; display:flex; gap:8px;">
-        <button id="goChBtn" style="font-size:12px; padding:6px 9px; border-radius:12px; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06); color:var(--text);">Vai</button>
-        <button id="hideToastBtn" style="font-size:12px; padding:6px 9px; border-radius:12px; border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.03); color:var(--text); opacity:.85;">Chiudi</button>
-      </div>
-    `;
-    document.body.appendChild(toast);
-    document.getElementById("goChBtn").onclick=()=>{ chSelect.value=String(bestCh.ch); toast.remove(); openCardFor=null; openCardIsPicker=false; renderAll(); };
-    document.getElementById("hideToastBtn").onclick=()=> toast.remove();
-  }
+  // CH suggestion toast removed (v0.1.4)
 }
 
 // tick updates (cards + slots)
@@ -1359,15 +1327,32 @@ function updateAllLabels(){
       lab.classList.add('window');
       return;
     }
+    const tnow = nowMs();
+    const arr = timersArr(ch, c.id);
+    if (!arr.length){ lab.textContent=''; lab.style.display='none'; return; }
 
-    if (info.nextLikelyMs != null){
-      lab.textContent = `~${fmtCountdown(info.nextLikelyMs - nowMs())}`;
+    // Consistency with barra: show countdown to MIN (earliest)
+    const mins=[]; const maxs=[];
+    for (const slot of arr){
+      const stw = slotWindowState(slot);
+      mins.push(stw.minMs);
+      maxs.push(stw.maxMs);
+    }
+    const minEarliest = Math.min(...mins);
+    const maxForEarliest = maxs[mins.index(minEarliest)] || null;
+
+    if (tnow < minEarliest){
+      lab.textContent = `Min ${fmtCountdown(minEarliest - tnow)}`;
+      return;
+    }
+    if (maxForEarliest != null && tnow <= maxForEarliest){
+      lab.textContent = `⟡ ${fmtCountdown(maxForEarliest - tnow)} x${info.ready || 1}`;
+      lab.classList.add('window');
       return;
     }
 
-    const arr = timersArr(ch, c.id).slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs);
-    const first = arr[0] || null;
-    if (!first){ lab.textContent=''; lab.style.display='none'; return; }
+    // Late / fallback
+    const first = arr.slice().sort((a,b)=>a.nextSpawnMs-b.nextSpawnMs)[0];
     const st = slotStatusText(first);
     lab.textContent = st.text;
     if (st.cls) lab.classList.add(st.cls);
