@@ -1339,7 +1339,7 @@ function updateAllLabels(){
       maxs.push(stw.maxMs);
     }
     const minEarliest = Math.min(...mins);
-    const maxForEarliest = maxs[mins.index(minEarliest)] || null;
+    const maxForEarliest = maxs[mins.indexOf(minEarliest)] || null;
 
     if (tnow < minEarliest){
       lab.textContent = `Min ${fmtCountdown(minEarliest - tnow)}`;
